@@ -1439,24 +1439,36 @@
       // ===================================================================
       function parseFirebaseConfigInput(rawText) {
         if (!rawText || !rawText.trim()) {
-          throw new Error("Pega el bloque firebaseConfig de tu proyecto Firebase.");
+          return DEFAULT_FIREBASE_CONFIG;
         }
-        let cleaned = rawText.trim();
-        // Extract object {...} if user pasted full `const firebaseConfig = { ... };`
+        const normalized = rawText.replace(/[\u00A0\u200B]/g, " ").trim();
+        // 1. Direct regex extraction for standard Firebase keys (immune to colons in appId or JS comments)
+        const keys = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId", "measurementId", "databaseURL"];
+        const extracted = {};
+        for (const k of keys) {
+          const rx = new RegExp("(?:['\"]?" + k + "['\"]?)\\s*:\\s*['\"]([^'\"]+)['\"]");
+          const match = normalized.match(rx);
+          if (match && match[1]) {
+            extracted[k] = match[1].trim();
+          }
+        }
+        if (extracted.apiKey && extracted.projectId) {
+          return extracted;
+        }
+        // 2. Fallback JSON parse only quoting keys preceded by { , or newline
+        let cleaned = normalized;
         const firstBrace = cleaned.indexOf("{");
         const lastBrace = cleaned.lastIndexOf("}");
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
           cleaned = cleaned.slice(firstBrace, lastBrace + 1);
         }
-        // Convert unquoted JS keys to valid JSON
         const jsonReady = cleaned
           .replace(/\/\/.*$/gm, "")
-          .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":')
-          .replace(/'/g, '"')
+          .replace(/([{,]\s*)(?:['"]?)([a-zA-Z0-9_]+)(?:['"]?)\s*:/g, '$1"$2":')
           .replace(/,\s*([}\]])/g, "$1");
         const cfg = JSON.parse(jsonReady);
         if (!cfg.apiKey || !cfg.projectId) {
-          throw new Error("El objeto debe incluir al menos apiKey y projectId.");
+          throw new Error("El bloque debe incluir al menos apiKey y projectId.");
         }
         return cfg;
       }
@@ -2978,7 +2990,12 @@
           try {
             const raw = document.getElementById("firebase-config-textarea").value;
             const cfg = parseFirebaseConfigInput(raw);
-            await connectToFirebaseCloud(cfg, false);
+            document.getElementById("firebase-config-textarea").value = JSON.stringify(cfg, null, 2);
+            const ok = await connectToFirebaseCloud(cfg, false);
+            if (ok) {
+              await pushAllLocalDataToFirestore();
+              await pullCollectionsFromFirestore();
+            }
           } catch (err) {
             showToast(err.message, "error");
           }
