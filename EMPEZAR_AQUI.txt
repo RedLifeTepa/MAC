@@ -1,0 +1,27 @@
+MAC STORE 1.1.0 · SIN DEMO
+Creado por Altos Film — https://altosfilm.com
+
+El código ya apunta al proyecto mac-store-eba30.
+No existen usuarios, contraseñas ni productos de ejemplo.
+
+1. Sube TODO el contenido del proyecto a la raíz de tu repositorio GitHub.
+   Incluye .github, .firebaserc y .gitignore. No subas solamente el ZIP.
+
+2. Activa en Firebase: Email/Password, Firestore y Storage; habilita Blaze.
+
+3. Publica con una de las dos rutas de README.md:
+   - Firebase CLI desde tu computadora; o
+   - workflow de GitHub con la cuenta de servicio en Secrets.
+
+4. Configura BOOTSTRAP_ADMIN_EMAIL con tu correo real de propietario.
+
+5. Abre https://mac-store-eba30.web.app después de desplegar.
+   Pulsa Configurar primer administrador y verifica tu correo.
+
+6. Crea tu categoría, proveedor, productos y cajeros. Abre caja para vender.
+
+IMPORTANTE
+Subir archivos a GitHub NO despliega automáticamente el backend.
+La guía README.md explica la activación inicial y las actualizaciones.
+No hay una cuenta compartida para entrar ni una base de datos local.
+Nunca publiques claves privadas ni JSON de cuenta de servicio en el repositorio.

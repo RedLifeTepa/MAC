@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+  function staff() {
+   return request.auth != null
+    && request.auth.token.role in ['admin','cashier']
+    && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.active == true
+    && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == request.auth.token.role;
+  }
+  match /products/{productId}/{fileName} {
+   allow read: if staff();
+   allow create, update: if staff() && request.auth.token.role == 'admin'
+    && request.resource.size <= 5 * 1024 * 1024
+    && request.resource.contentType.matches('image/(jpeg|png|webp)');
+   allow delete: if staff() && request.auth.token.role == 'admin';
+  }
+ }
+}

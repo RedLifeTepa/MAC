@@ -1,40 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
-    function isSignedIn() { return request.auth != null; }
-    function userDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function hasRole(r) { return isSignedIn() && (request.auth.token.role == r || (userDoc().active == true && userDoc().role == r)); }
-    function isAdmin() { return hasRole('admin'); }
-    function isCashierOrAdmin() { return hasRole('admin') || hasRole('cashier'); }
-
-    match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
-    }
-    match /categories/{id} { allow read: if isCashierOrAdmin(); allow write: if isAdmin(); }
-    match /suppliers/{id} { allow read: if isCashierOrAdmin(); allow write: if isAdmin(); }
-    match /products/{id} {
-      allow read: if isCashierOrAdmin();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (
-        isCashierOrAdmin() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'updatedAt']) &&
-        request.resource.data.stock <= resource.data.stock &&
-        request.resource.data.stock >= 0
-      );
-    }
-    match /sales/{id} {
-      allow read, create: if isCashierOrAdmin();
-      allow update, delete: if isAdmin();
-    }
-    match /shifts/{id} {
-      allow read, create, update: if isCashierOrAdmin();
-      allow delete: if isAdmin();
-    }
-    match /logs/{id} {
-      allow read: if isAdmin();
-      allow create: if isCashierOrAdmin();
-      allow update, delete: if false;
-    }
+ match /databases/{database}/documents {
+  function staff() {
+   return request.auth != null
+    && request.auth.token.role in ['admin', 'cashier']
+    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == request.auth.token.role;
   }
+  function admin() { return staff() && request.auth.token.role == 'admin'; }
+  function owner() { return staff() && resource.data.cashierId == request.auth.uid; }
+  match /users/{uid} { allow read: if admin() || (staff() && request.auth.uid == uid); }
+  match /products/{id} { allow read: if staff(); }
+  match /categories/{id} { allow read: if staff(); }
+  match /suppliers/{id} { allow read: if admin(); }
+  match /registers/{id} { allow read: if staff(); }
+  match /sales/{id} { allow read: if admin() || owner(); }
+  match /shifts/{id} { allow read: if admin() || owner(); }
+  match /cashMovements/{id} { allow read: if admin() || owner(); }
+  match /inventoryMovements/{id} { allow read: if admin(); }
+  match /logs/{id} { allow read: if admin(); }
+  match /settings/store { allow read: if staff(); }
+  match /{document=**} { allow read, write: if false; }
+ }
 }
