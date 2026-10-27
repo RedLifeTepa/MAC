@@ -20,7 +20,7 @@
 - [ ] Admin ve todas las ventas/cortes; cajero solo los propios.
 - [ ] Admin crea y modifica usuarios; no se desactiva último administrador.
 - [ ] Un cajero no modifica inventario/usuarios mediante llamadas manuales.
-- [ ] Escritura directa de stock, roles o venta en Firestore es rechazada.
+- [ ] Escritura directa de stock, roles o venta por un cajero fuera de la transacción válida es rechazada.
 - [ ] Ventas concurrentes de última unidad: solo una confirmación.
 - [ ] Venta/cierre concurrentes: la venta entra al corte o se rechaza.
 - [ ] CSV respeta periodo; dashboard coincide con ventas no anuladas.

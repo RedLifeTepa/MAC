@@ -1,0 +1,212 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function profile(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
+  function staff(){return request.auth!=null && profile().active==true && profile().role in ['admin','cashier'];}
+  function admin(){return staff() && profile().role=='admin';}
+  function money(n){return n is int && n>=0 && n<=1000000000000;}
+  function shortText(s,n){return s is string && s.size()>0 && s.size()<=n;}
+  function shiftAfter(id){return getAfter(/databases/$(database)/documents/shifts/$(id)).data;}
+  function productAfter(id){return getAfter(/databases/$(database)/documents/products/$(id)).data;}
+  function saleAfter(id){return getAfter(/databases/$(database)/documents/sales/$(id)).data;}
+  function moveAfter(id){return getAfter(/databases/$(database)/documents/inventoryMovements/$(id)).data;}
+  function auditAfter(id){return getAfter(/databases/$(database)/documents/logs/$(id)).data;}
+  function validProduct(d){
+   return shortText(d.name,120) && d.active is bool && d.stock is int && d.stock>=0
+    && d.minStock is int && d.minStock>=0 && d.lowStock==(d.stock<=d.minStock)
+    && money(d.costCents) && money(d.realCostCents) && money(d.priceCents) && d.priceCents>0
+    && d.barcode is string && d.sku is string && d.categoryId is string && d.supplierId is string
+    && d.updatedAt==request.time;
+  }
+  function reservedCodes(d,id){
+   return (d.barcode=='' || (d.barcode.matches('^[A-Za-z0-9_-]{1,64}$') && getAfter(/databases/$(database)/documents/barcodes/$(d.barcode)).data.productId==id))
+    && (d.sku=='' || (d.sku.matches('^[A-Za-z0-9_-]{1,64}$') && getAfter(/databases/$(database)/documents/skus/$(d.sku)).data.productId==id));
+  }
+  function stockSale(d,id){
+   let sale=saleAfter(d.lastSaleId);
+   let n=d.lastSaleIndex;
+   let line=sale.items[n];
+   let priorSale=n==0?0:sale.items[n-1].runningSaleCents;
+   let priorCost=n==0?0:sale.items[n-1].runningCostCents;
+   let movement=moveAfter(d.lastMovementId);
+   return staff() && sale.cashierId==request.auth.uid && sale.createdAt==request.time
+    && n>=0 && n<8 && line.productId==id && resource.data.active==true
+    && line.qty is int && line.qty>0 && line.qty<=10000
+    && line.unitPriceCents==resource.data.priceCents && line.unitCostCents==resource.data.realCostCents
+    && line.name==resource.data.name && line.barcode==resource.data.barcode
+    && line.subtotalCents==line.qty*line.unitPriceCents
+    && line.runningSaleCents==priorSale+line.subtotalCents
+    && line.runningCostCents==priorCost+line.qty*line.unitCostCents
+    && d.stock==resource.data.stock-line.qty && d.stock>=0
+    && d.updatedAt==request.time && d.lowStock==(d.stock<=d.minStock)
+    && d.diff(resource.data).affectedKeys().hasOnly(['stock','lowStock','updatedAt','lastSaleId','lastSaleIndex','lastMovementId'])
+    && movement.productId==id && movement.saleId==d.lastSaleId && movement.qtyDelta==-line.qty
+    && movement.createdAt==request.time && movement.actorId==request.auth.uid;
+  }
+  function validLine(items,n,saleId){
+   return n>=items.size() || (productAfter(items[n].productId).lastSaleId==saleId && productAfter(items[n].productId).lastSaleIndex==n);
+  }
+  function validSale(d,id){
+   let shift=shiftAfter(d.shiftId);
+   return staff() && d.keys().hasOnly(['cashierId','shiftId','registerId','items','totalSaleCents','totalCostCents','paymentMethod','paymentReceivedCents','changeCents','status','businessDate','currency','createdAt','fingerprint','operationId','requestId'])
+    && shortText(d.requestId,100) && d.requestId.matches('^[A-Za-z0-9_-]+$') && id==request.auth.uid+'_'+d.requestId
+    && d.cashierId==request.auth.uid && profile().openShiftId==d.shiftId
+    && d.status=='completed' && d.currency=='MXN' && d.createdAt==request.time
+    && d.operationId.matches('^[A-Za-z0-9_-]+$') && d.fingerprint is string && d.fingerprint.size()<=15000
+    && d.businessDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    && d.items is list && d.items.size()>0 && d.items.size()<=8
+    && validLine(d.items,0,id) && validLine(d.items,1,id) && validLine(d.items,2,id) && validLine(d.items,3,id)
+    && validLine(d.items,4,id) && validLine(d.items,5,id) && validLine(d.items,6,id) && validLine(d.items,7,id)
+    && money(d.totalSaleCents) && d.totalSaleCents>0 && money(d.totalCostCents)
+    && d.totalSaleCents==d.items[d.items.size()-1].runningSaleCents
+    && d.totalCostCents==d.items[d.items.size()-1].runningCostCents
+    && money(d.paymentReceivedCents) && money(d.changeCents)
+    && ((d.paymentMethod=='cash' && d.paymentReceivedCents>=d.totalSaleCents && d.changeCents==d.paymentReceivedCents-d.totalSaleCents)
+      || (d.paymentMethod in ['card','transfer'] && d.paymentReceivedCents==d.totalSaleCents && d.changeCents==0))
+    && shift.status=='open' && shift.cashierId==request.auth.uid && shift.registerId==d.registerId && shift.lastSaleId==id;
+  }
+  function paid(before,after,method,total){
+   return after.keys().hasOnly(['cash','card','transfer'])
+    && after.cash==before.cash+(method=='cash'?total:0)
+    && after.card==before.card+(method=='card'?total:0)
+    && after.transfer==before.transfer+(method=='transfer'?total:0);
+  }
+  function shiftSale(d,id){
+   let sale=saleAfter(d.lastSaleId);
+   let audit=auditAfter(sale.operationId);
+   return audit.action=='sale.create' && audit.entityId==d.lastSaleId && audit.actorId==request.auth.uid && audit.createdAt==request.time
+    && sale.cashierId==request.auth.uid && sale.shiftId==id && sale.createdAt==request.time
+    && sale.status=='completed' && d.status=='open'
+    && d.diff(resource.data).affectedKeys().hasOnly(['lastSaleId','totalSalesCents','totalCostCents','saleCount','payments'])
+    && d.totalSalesCents==resource.data.totalSalesCents+sale.totalSaleCents
+    && d.totalCostCents==resource.data.totalCostCents+sale.totalCostCents
+    && d.saleCount==resource.data.saleCount+1 && paid(resource.data.payments,d.payments,sale.paymentMethod,sale.totalSaleCents);
+  }
+  function shiftCash(d,id){
+   let move=getAfter(/databases/$(database)/documents/cashMovements/$(d.lastCashMovementId)).data;
+   return move.shiftId==id && move.actorId==request.auth.uid && move.createdAt==request.time && d.status=='open'
+    && d.diff(resource.data).affectedKeys().hasOnly(['lastCashMovementId','cashInCents','cashOutCents'])
+    && d.cashInCents==resource.data.cashInCents+(move.type=='in'?move.amountCents:0)
+    && d.cashOutCents==resource.data.cashOutCents+(move.type=='out'?move.amountCents:0)
+    && d.openingCashCents+d.payments.cash+d.cashInCents-d.cashOutCents>=0;
+  }
+  function shiftClose(d,id){
+   return d.status=='closed' && d.closedAt==request.time
+    && d.diff(resource.data).affectedKeys().hasOnly(['status','closedAt','expectedCashCents','closingCashCents','differenceCents','notes'])
+    && d.expectedCashCents==resource.data.openingCashCents+resource.data.payments.cash+resource.data.cashInCents-resource.data.cashOutCents
+    && money(d.closingCashCents) && d.differenceCents==d.closingCashCents-d.expectedCashCents
+    && d.notes is string && d.notes.size()<=500
+    && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.openShiftId==null
+    && getAfter(/databases/$(database)/documents/registers/$(d.registerId)).data.openShiftId==null;
+  }
+  match /users/{uid}{
+   allow get: if (request.auth!=null && request.auth.uid==uid) || admin();
+   allow list: if admin();
+   allow create: if admin() && request.resource.data.role in ['admin','cashier'] && request.resource.data.active is bool
+    && shortText(request.resource.data.name,120) && request.resource.data.email is string && request.resource.data.get('openShiftId',null)==null;
+   allow update: if (admin() && request.resource.data.role in ['admin','cashier'] && request.resource.data.active is bool
+    && request.resource.data.email==resource.data.email && shortText(request.resource.data.name,120)
+    && (uid!=request.auth.uid || (request.resource.data.role=='admin' && request.resource.data.active==true))
+    && (resource.data.get('openShiftId',null)==null || (request.resource.data.role==resource.data.role && request.resource.data.active==true)))
+    || (staff() && uid==request.auth.uid
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openShiftId','updatedAt'])
+      && ((resource.data.get('openShiftId',null)==null && request.resource.data.openShiftId is string
+         && shiftAfter(request.resource.data.openShiftId).cashierId==uid && shiftAfter(request.resource.data.openShiftId).status=='open' && shiftAfter(request.resource.data.openShiftId).openedAt==request.time)
+       || (resource.data.openShiftId is string && request.resource.data.get('openShiftId',null)==null
+         && shiftAfter(resource.data.openShiftId).status=='closed' && shiftAfter(resource.data.openShiftId).closedAt==request.time)));
+  }
+  match /products/{id}{
+   allow read: if staff();
+   allow create: if admin() && validProduct(request.resource.data) && reservedCodes(request.resource.data,id) && request.resource.data.createdAt==request.time;
+   allow update: if (admin() && validProduct(request.resource.data) && reservedCodes(request.resource.data,id) && request.resource.data.get('lastSaleId',null)==resource.data.get('lastSaleId',null)) || stockSale(request.resource.data,id);
+  }
+  match /barcodes/{code}{
+   allow read: if admin();
+   allow create: if admin() && code.matches('^[A-Za-z0-9_-]{1,64}$') && request.resource.data.keys().hasOnly(['productId']) && productAfter(request.resource.data.productId).barcode==code;
+   allow update: if admin() && request.resource.data==resource.data;
+  }
+  match /skus/{code}{
+   allow read: if admin();
+   allow create: if admin() && code.matches('^[A-Za-z0-9_-]{1,64}$') && request.resource.data.keys().hasOnly(['productId']) && productAfter(request.resource.data.productId).sku==code;
+   allow update: if admin() && request.resource.data==resource.data;
+  }
+  match /categories/{id}{allow read: if staff();allow create,update: if admin() && shortText(request.resource.data.name,120) && request.resource.data.active is bool;}
+  match /suppliers/{id}{allow read: if admin();allow create,update: if admin() && shortText(request.resource.data.name,120) && request.resource.data.active is bool;}
+  match /settings/store{allow read: if staff();allow create,update: if admin() && shortText(request.resource.data.name,120) && request.resource.data.currency=='MXN';}
+  match /registers/{id}{
+   allow read: if staff();
+   allow create: if admin() && request.resource.data.get('openShiftId',null)==null;
+   allow update: if (admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openShiftId','name','active']))
+    || (staff() && resource.data.active && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openShiftId'])
+      && ((resource.data.get('openShiftId',null)==null && request.resource.data.openShiftId is string
+         && shiftAfter(request.resource.data.openShiftId).registerId==id && shiftAfter(request.resource.data.openShiftId).cashierId==request.auth.uid && shiftAfter(request.resource.data.openShiftId).openedAt==request.time)
+       || (resource.data.openShiftId is string && request.resource.data.get('openShiftId',null)==null
+         && shiftAfter(resource.data.openShiftId).cashierId==request.auth.uid && shiftAfter(resource.data.openShiftId).closedAt==request.time)));
+  }
+  match /shifts/{id}{
+   allow read: if admin() || (staff() && resource.data.cashierId==request.auth.uid);
+   allow create: if staff() && request.resource.data.cashierId==request.auth.uid && request.resource.data.status=='open'
+    && request.resource.data.openedAt==request.time && request.resource.data.closedAt==null
+    && money(request.resource.data.openingCashCents) && profile().get('openShiftId',null)==null
+    && get(/databases/$(database)/documents/registers/$(request.resource.data.registerId)).data.openShiftId==null
+    && get(/databases/$(database)/documents/registers/$(request.resource.data.registerId)).data.active==true
+    && request.resource.data.payments=={'cash':0,'card':0,'transfer':0}
+    && request.resource.data.totalSalesCents==0 && request.resource.data.totalCostCents==0 && request.resource.data.saleCount==0
+    && request.resource.data.cashInCents==0 && request.resource.data.cashOutCents==0
+    && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.openShiftId==id
+    && getAfter(/databases/$(database)/documents/registers/$(request.resource.data.registerId)).data.openShiftId==id;
+   allow update: if staff() && resource.data.status=='open'
+    && (admin() || (resource.data.cashierId==request.auth.uid && ((request.resource.data.keys().hasAny(['lastSaleId']) && shiftSale(request.resource.data,id)) || (request.resource.data.keys().hasAny(['lastCashMovementId']) && shiftCash(request.resource.data,id)) || shiftClose(request.resource.data,id))));
+  }
+  match /sales/{id}{
+   allow get: if admin() || (staff() && id.matches('^'+request.auth.uid+'_[A-Za-z0-9_-]+$'));
+   allow list: if admin() || (staff() && resource.data.cashierId==request.auth.uid);
+   allow create: if validSale(request.resource.data,id);
+   allow update: if admin() && resource.data.status=='completed' && request.resource.data.status=='voided'
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','voidReason','voidedAt','voidedBy'])
+    && request.resource.data.voidedAt==request.time && request.resource.data.voidedBy==request.auth.uid
+    && shortText(request.resource.data.voidReason,500) && get(/databases/$(database)/documents/shifts/$(resource.data.shiftId)).data.status=='open';
+  }
+  function saleMovement(d,id){
+   let p=productAfter(d.productId);
+   return d.type=='sale' && d.qtyDelta<0 && p.lastMovementId==id && p.lastSaleId==d.saleId
+    && p.updatedAt==request.time && d.stockAfter==p.stock && d.stockBefore==d.stockAfter-d.qtyDelta;
+  }
+  match /inventoryMovements/{id}{
+   allow read: if admin();
+   allow create: if staff() && request.resource.data.actorId==request.auth.uid && request.resource.data.createdAt==request.time
+    && (admin() || saleMovement(request.resource.data,id));
+  }
+  match /cashMovements/{id}{
+   allow read: if admin() || (staff() && resource.data.cashierId==request.auth.uid);
+   allow create: if staff() && request.resource.data.actorId==request.auth.uid && request.resource.data.createdAt==request.time
+    && request.resource.data.type in ['in','out'] && money(request.resource.data.amountCents) && request.resource.data.amountCents>0
+    && shortText(request.resource.data.reason,500)
+    && shiftAfter(request.resource.data.shiftId).lastCashMovementId==id
+    && shiftAfter(request.resource.data.shiftId).cashierId==request.resource.data.cashierId
+    && (admin() || request.resource.data.cashierId==request.auth.uid);
+  }
+  match /logs/{id}{
+   allow read: if admin();
+   allow create: if staff() && request.resource.data.actorId==request.auth.uid && request.resource.data.createdAt==request.time
+    && (admin()
+      || (request.resource.data.action=='sale.create' && saleAfter(request.resource.data.entityId).operationId==id && saleAfter(request.resource.data.entityId).cashierId==request.auth.uid && saleAfter(request.resource.data.entityId).createdAt==request.time)
+      || (request.resource.data.action=='shift.open' && shiftAfter(request.resource.data.entityId).cashierId==request.auth.uid && shiftAfter(request.resource.data.entityId).openedAt==request.time)
+      || (request.resource.data.action=='shift.close' && shiftAfter(request.resource.data.entityId).cashierId==request.auth.uid && shiftAfter(request.resource.data.entityId).closedAt==request.time)
+      || (request.resource.data.action=='cash.move' && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.actorId==request.auth.uid && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.createdAt==request.time));
+  }
+  match /images/{id}{
+   allow read: if staff();
+   allow create: if admin() && request.resource.data.keys().hasOnly(['dataUrl','createdBy','createdAt'])
+    && request.resource.data.createdBy==request.auth.uid && request.resource.data.createdAt==request.time
+    && request.resource.data.dataUrl is string && request.resource.data.dataUrl.size()<=150000
+    && request.resource.data.dataUrl.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$');
+  }
+  match /control/revision{
+   allow read: if staff();
+   allow create: if admin() && request.resource.data.version==0 && request.resource.data.updatedAt==request.time;
+   allow update: if staff() && request.resource.data.keys().hasOnly(['version','updatedAt']) && request.resource.data.version is int && request.resource.data.version==resource.data.version+1 && request.resource.data.updatedAt==request.time;
+  }
+  match /{document=**}{allow read,write: if false;}
+ }
+}

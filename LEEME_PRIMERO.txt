@@ -1,0 +1,47 @@
+MAC STORE 1.2.0 · FIRESTORE DIRECTO
+Creado por Altos Film — https://altosfilm.com
+
+Ya NO usa Cloud Functions ni Cloud Storage.
+Requiere Authentication (acceso) + Cloud Firestore (datos).
+
+PARA TU CUENTA ACTUAL: redlifetepa@gmail.com
+
+1. Firebase > Authentication: conserva tu cuenta y contraseña actuales.
+   Comprueba que Correo/Contraseña esté habilitado.
+
+2. Firebase > Firestore Database: crea la base (default) si aún no existe.
+   Puedes usar Spark dentro de sus cuotas. No actives Functions.
+
+3. Firestore > Reglas: reemplaza TODO por REGLAS_FIRESTORE.txt y PUBLICA.
+   No dejes reglas abiertas.
+
+4. Authentication > Users: copia el UID de tu cuenta.
+   Firestore > Datos: crea la colección users y un documento con ESE UID.
+   El ID NO es el correo ni un ID automático.
+
+   Campos del documento:
+   name         string     Bryan Delgadillo
+   email        string     redlifetepa@gmail.com
+   role         string     admin
+   active       boolean    true
+   openShiftId  null       null
+
+   No escribas true como texto. No guardes la contraseña en Firestore.
+
+5. Reemplaza los archivos de tu repositorio por esta versión completa.
+   GitHub > Settings > Pages > Source: GitHub Actions.
+   El workflow publica web/ cuando haces push a main.
+   Autoriza TU-USUARIO.github.io en Authentication > Authorized domains.
+   Espera la publicación en verde y recarga con Ctrl+F5.
+
+Entra con el mismo correo y contraseña de Authentication.
+El administrador crea cajeros desde el panel sin cerrar su propia sesión.
+Las cajas se crean al acceder; el catálogo comienza vacío.
+Abre turno para cobrar.
+
+Esta variante admite hasta 8 productos DISTINTOS por recibo, con varias
+unidades de cada producto. Para más tipos, genera otro recibo. Ese límite
+mantiene las validaciones atómicas dentro de los límites de Rules.
+
+No necesitas Functions, Storage, custom claims, claves privadas ni variables
+de propietario. Más instrucciones y límites: README.md.

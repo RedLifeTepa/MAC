@@ -1,5 +1,7 @@
-name: Vista previa en GitHub Pages (opcional)
+name: Publicar MAC Store en GitHub Pages
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

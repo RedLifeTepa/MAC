@@ -1,51 +1,47 @@
-# Datos y operaciones
+# Modelo Firestore directo · 1.2.0
 
-Moneda: enteros en centavos. Cantidades enteras. Las fechas se manejan como ISO en el dominio y como Timestamp en los documentos operativos escritos por Functions. `businessDate` es la fecha local de cada venta. Los IDs de relación son strings; el código de barras conserva ceros iniciales.
+Se conservan users, products, categories, suppliers, registers, sales, shifts, inventoryMovements, cashMovements, logs y settings/store. El documento control/revision coordina las transacciones del cliente.
 
-| Colección | Campos |
-|---|---|
-| users | name:string, email:string, role:admin/cashier, active:boolean, openShiftId:string/null, authSyncStatus:ready/pending, createdAt, updatedAt |
-| products | name, nameSearch, barcode, sku, categoryId, supplierId, costCents:int, realCostCents:int, pricingMode:markup/margin/manual, profitPercent:number, priceCents:int, stock:int, minStock:int, lowStock:boolean, imagePath:string/null, active:boolean, createdAt, updatedAt |
-| categories | name, description, active, createdAt, updatedAt |
-| suppliers | name, contact, phone, email, notes, active, createdAt, updatedAt |
-| registers | name, active, openShiftId |
-| sales | cashierId, shiftId, registerId, items:array, totalSaleCents, totalCostCents, paymentMethod:cash/card/transfer, paymentReceivedCents, changeCents, status:completed/voided, businessDate, currency, createdAt, fingerprint, voidReason?, voidedAt?, voidedBy? |
-| shifts | cashierId, registerId, status:open/closed, openedAt, closedAt, openingCashCents, payments:{cash,card,transfer}, totalSalesCents, totalCostCents, saleCount, cashInCents, cashOutCents, expectedCashCents, closingCashCents, differenceCents, notes |
-| inventoryMovements | productId, type:initial/adjustment/sale/void, qtyDelta, stockBefore, stockAfter, saleId, reason, actorId, createdAt |
-| cashMovements | shiftId, cashierId, type:in/out, amountCents, reason, actorId, createdAt |
-| logs | action, actorId, entityId, details:map, createdAt |
-| settings/store | name, currency, timezone, logoPath, receiptMessage |
-| control/revision | version:int, updatedAt |
+## Cambios de infraestructura
 
-`items` conserva productId, name, barcode, qty, unitPriceCents, unitCostCents, subtotalCents. El identificador de venta es uid + requestId. El fingerprint normaliza turno, líneas, pago y total esperado, por lo que el mismo ID con un contenido distinto se rechaza.
+- Auth identifica UID y contraseña; el documento users/{uid} determina role y active.
+- No hay custom claims, funciones callable ni lecturas/escrituras desde Admin SDK en producción.
+- El primer admin se autoriza manualmente en Firebase Console.
+- Las consultas de cajero a ventas/cortes/movimientos incluyen cashierId == UID. Firestore Rules verifica permisos; no filtra resultados automáticamente.
+- Las escrituras de negocio usan runTransaction, con todas las lecturas antes de escribir. Se usa serverTimestamp para las fechas nuevas y se conservan íntegramente los timestamps anteriores.
 
-## Operaciones callable
+## Productos e índices de unicidad
 
-`getState({})`: devuelve únicamente el conjunto autorizado. El admin consulta todo y el cajero solo su perfil, ventas, turnos y movimientos de efectivo, junto con productos, categorías y cajas.
+products conserva name, barcode, sku, categoryId, supplierId, costCents, realCostCents, pricingMode, profitPercent, priceCents, stock, minStock, lowStock, imagePath, active, createdAt y updatedAt.
 
-`mutate({action, data})` soporta:
+barcodes/{barcode} y skus/{sku} contienen productId. El índice se reserva transaccionalmente al guardar un producto. Los códigos históricos no se reasignan. Baja = active:false, sin eliminación física.
 
-- product.save / product.delete
-- inventory.adjust
-- catalog.save (categories o suppliers)
-- user.save
-- shift.open / shift.close
-- cash.move
-- sale.create / sale.void
-- settings.save
+Para vincular venta/movimientos sin que un cajero modifique otros datos, el producto también conserva lastSaleId, lastSaleIndex y lastMovementId. Las reglas restringen esas modificaciones a la venta atómica correspondiente.
 
-La función comprueba Auth, perfil activo y coincidencia del claim role. El dominio aplica las reglas del rol. No acepta como confiables precios ni costos enviados por el cliente. Los cambios se guardan en una transacción de Firestore y se registra auditoría. Las contraseñas únicamente se envían al endpoint autenticado que usa Firebase Auth; no se almacenan en Firestore ni en los logs.
+## Ventas
 
-## Consistencia y límites
+El ID es UID_requestId. Se conservan cashierId, shiftId, registerId, items, totalSaleCents, totalCostCents, paymentMethod, paymentReceivedCents, changeCents, status, currency, businessDate, fingerprint, createdAt. Se añade operationId para asociar auditoría y movimientos.
 
-Esta primera versión carga el conjunto operativo dentro de las mutaciones y coordina transacciones mediante control/revision. Las búsquedas y agregaciones se hacen en memoria, con paginación visual. Esto simplifica la consistencia entre módulos para una tienda pequeña, a cambio de más lecturas y menor escalabilidad. Para alto volumen deben reemplazarse esas consultas por repositorios selectivos, paginación de servidor y estadísticas agregadas.
+Cada item conserva productId, name, barcode, qty, unitPriceCents, unitCostCents, subtotalCents y dos acumulados runningSaleCents/runningCostCents. Las reglas verifican que los acumulados correspondan a los precios del producto y que el total final coincida. Los enlaces a los productos exigen una única línea por producto.
 
-No hay índices compuestos requeridos por esta implementación: solo las consultas simples por cashierId en getState, cuyos índices automáticos se conservan. Los índices del plan original serán necesarios cuando se trasladen los filtros y el ordenamiento al servidor.
+Máximo 8 productos distintos por transacción. La transacción incluye venta, productos, movimientos de inventario, acumulados del turno y log. getAfter valida el estado resultante; un conjunto incompleto es rechazado.
 
-Las reservas barcode/SKU se implementan mediante unicidad dentro de la transacción serializada; no se crean colecciones barcodes ni skus. La auditoría de anulación se conserva en sales, inventoryMovements y logs, sin una colección saleVoids adicional.
+createdAt es una marca de tiempo del servidor. Para los reportes, businessDate se recalcula desde ese timestamp y la zona de la tienda, evitando depender del reloj del dispositivo para la fecha mostrada.
 
-## Primera instalación (1.1.0)
+## Turnos y efectivo
 
-`claimFirstAdmin({name})` exige sesión Auth, email verificado y coincidencia con el parámetro BOOTSTRAP_ADMIN_EMAIL. La transacción reserva `control/first-admin` con uid/email, crea únicamente el perfil admin y las cajas si no existen, y conserva la tienda vacía. El claim se asigna mediante Admin SDK y el cliente refresca su token. No hay semillas ni adaptador de almacenamiento local en el frontend.
+shifts conserva cashierId, registerId, status, openedAt, closedAt, openingCashCents, payments, totalSalesCents, totalCostCents, saleCount, cashInCents, cashOutCents, expectedCashCents, closingCashCents, differenceCents y notes. lastSaleId y lastCashMovementId vinculan los cambios de acumulados con los registros atómicos.
 
-El bootstrap manual por ADC sigue disponible como herramienta administrativa en functions/bootstrap.js; el flujo recomendado para nuevos usuarios es la activación verificada desde la interfaz.
+Apertura enlaza el turno en users y registers. Cierre libera ambos y guarda esperado, contado y diferencia. Un corte cerrado no acepta actualizaciones.
+
+## Imágenes
+
+images/{id}: dataUrl (JPG/PNG/WebP base64, máximo 150000 caracteres), createdBy y createdAt. products.imagePath o settings.logoPath utiliza firestore:{id}. Solo admin crea imágenes; el personal activo puede leerlas. Las imágenes anteriores permanecen como documentos hasta limpiarlas desde consola.
+
+## Lecturas y volumen
+
+El administrador carga el conjunto operativo; la transacción vuelve a leer las referencias conocidas y verifica la revisión antes de guardar. Si el conjunto cambió se obtiene nuevamente. Cajeros leen solo los documentos necesarios para su operación.
+
+Se conservan filtros/reportes en cliente y el enfoque de una tienda pequeña. Las imágenes, lecturas e historial consumen las cuotas de Firestore. No representa una solución de alto tráfico ni multi-sucursal.
+
+Firestore Admin SDK aparece únicamente en pruebas protegidas por variables de emulador, nunca en el sitio publicado.

@@ -1,195 +1,153 @@
-# MAC Store 1.1.0 · Firebase / GitHub
+# MAC Store 1.2.0 · Firestore directo
 
-Sistema web de inventario, punto de venta, caja, cortes, reportes y usuarios.
+Inventario, POS, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Preparado para GitHub y publicación estática.
 
-**Esta entrega utiliza únicamente Firebase. No tiene modo demo, cuentas compartidas, productos precargados ni una base operativa en el navegador.** La configuración pública ya apunta a `mac-store-eba30`.
+La configuración pública apunta a **mac-store-eba30**. Conserva tu cuenta de Authentication. Para entrar debes publicar las nuevas reglas y crear el perfil inicial: Authentication valida la contraseña; Firestore determina el rol.
 
-El código está preparado para subirlo a GitHub. La aplicación se publica en Firebase Hosting y guarda sus datos en Firebase. GitHub conserva el código y puede ejecutar el despliegue. Un push de archivos no crea ni activa por sí solo Auth, Firestore, Storage o Functions.
+No hay demo, catálogo de ejemplo ni una base operativa local. El SDK está incluido en web/vendor y no necesita compilarse para publicar.
 
-## Lo que incluye
+## Activar el acceso sin terminal
 
-- Productos, categorías y proveedores con alta, edición y baja lógica.
-- Código de barras/SKU únicos, imágenes, costo, costo real, recargo, margen o precio manual.
-- Inventario con movimientos y auditoría.
-- POS por nombre/código/lector USB y cámara compatible.
-- Efectivo, tarjeta y transferencia; cambio; stock validado en servidor.
-- Ventas transaccionales e idempotentes, sin stock negativo.
-- Recibos imprimibles y PDF mediante Guardar como PDF del navegador.
-- Apertura por caja/cajero, entradas, retiros, cierre, diferencias e historial.
-- Anulación completa con motivo y reversión de stock durante turno abierto.
-- Dashboard, reportes por periodo, CSV y exportación JSON de consulta.
-- Roles administrador/cajero y administración de usuarios.
-- Activación segura del primer administrador con correo propietario verificado.
-- Interfaz adaptable y SDK Firebase incluido localmente.
-- Reglas de Firestore/Storage y workflows de GitHub.
+Sigue LEEME_PRIMERO.txt:
 
-## 1. Preparar Firebase (una vez)
+1. En Authentication habilita Email/Password y conserva o crea tu usuario.
+2. Crea la base Firestore **(default)** en modo nativo si aún no existe.
+3. En Firestore > Reglas reemplaza el contenido por **REGLAS_FIRESTORE.txt** y pulsa **Publicar**. Es idéntico a firestore.rules.
+4. Copia el **UID** de tu cuenta en Authentication > Users.
+5. En Firestore > Datos crea **users/{ese UID}**:
 
-Entra al proyecto **mac-store-eba30** de Firebase Console y comprueba:
+| Campo | Tipo | Valor |
+|---|---|---|
+| name | string | Bryan Delgadillo |
+| email | string | redlifetepa@gmail.com |
+| role | string | admin |
+| active | boolean | true |
+| openShiftId | null | null |
 
-1. **Authentication > Sign-in method:** habilita Email/Password.
-2. **Firestore Database:** crea la base `(default)` si aún no existe. No uses reglas abiertas.
-3. **Storage:** inicializa el bucket `mac-store-eba30.firebasestorage.app`.
-4. Activa la facturación **Blaze**, necesaria para los servicios de esta arquitectura. Configura alertas de presupuesto.
-5. En **Authentication > Settings > Authorized domains**, autoriza `mac-store-eba30.web.app`, `mac-store-eba30.firebaseapp.com` y `localhost` si probarás localmente. Si utilizas otro dominio, agrégalo.
+El ID es el UID, no el correo ni un ID automático. active es boolean, no texto. No guardes contraseñas. Para otra cuenta, sustituye UID, nombre y correo.
 
-No se incluyen credenciales administrativas. El API key del archivo web/config.js es configuración pública; los permisos los aplican reglas y funciones.
+Al entrar como administrador se crean la configuración y dos cajas. El catálogo empieza vacío. La primera autorización se hace desde consola con la cuenta de Google administradora del proyecto; nadie puede registrarse como admin desde el sitio.
 
-## 2. Subir el proyecto a GitHub
+**No se necesitan Functions, Storage, BOOTSTRAP_ADMIN_EMAIL, custom claims, claves privadas ni cuenta de servicio.** Puede utilizar las cuotas de Spark; no es uso ilimitado. Revisa Uso en Firestore.
 
-1. Crea un repositorio, por ejemplo `mac-store`.
-2. Descomprime el ZIP.
-3. Sube **el contenido completo de la carpeta MAC-Store-v1.1.0-GitHub**, incluyendo `.github`, `.firebaserc` y `.gitignore`, a la raíz del repositorio.
-4. En la raíz deben verse `README.md`, `package.json`, `firebase.json`, `web/` y `functions/`. No subas el ZIP como único archivo.
+## Publicar en GitHub Pages
 
-Con Git desde la carpeta del proyecto:
+1. Sube TODO el contenido de MAC-Store-v1.2.0-Firestore a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
+2. En Settings > Pages > Source selecciona **GitHub Actions**.
+3. Usa la rama main. El workflow Publicar MAC Store en GitHub Pages publica al hacer push; también permite ejecución manual.
+4. Espera a que termine en verde y abre la URL que muestra Pages.
+5. Autoriza `TU-USUARIO.github.io` en Authentication > Settings > Authorized domains, sin https ni ruta. Autoriza también tu dominio propio si lo usas.
+6. Recarga con **Ctrl+F5** después de reemplazar la versión anterior.
 
-```bash
-git init
-git add .
-git commit -m "feat: MAC Store 1.1.0 conectado a Firebase"
-git branch -M main
-git remote add origin URL_DE_TU_REPOSITORIO
-git push -u origin main
-```
+El workflow publica solo web/, sin pruebas ni herramientas. Las rutas relativas permiten usar una URL de repositorio. Publicar la web no publica las reglas: debes completar Firestore > Reglas. Esta modalidad no necesita GitHub Secrets.
 
-Elige una de las siguientes opciones para publicar. No necesitas ejecutar ambas.
+Ajusta el alojamiento a los términos del proveedor elegido. También puedes publicar web/ en un servidor HTTPS propio o Firebase Hosting.
 
-## 3A. Publicar desde tu computadora (ruta más directa)
-
-Instala Node.js 22 LTS y Firebase CLI. Usa una cuenta de Google con permisos de administración/despliegue en el proyecto.
-
-```bash
-npm install -g firebase-tools
-firebase login
-npm --prefix functions ci
-npm run sync
-firebase deploy --project mac-store-eba30 --only firestore,storage,functions,hosting
-```
-
-**Durante el primer despliegue, Firebase pide `BOOTSTRAP_ADMIN_EMAIL`: escribe tu correo real de propietario.** No uses un correo de ejemplo. Firebase guarda este parámetro en un `.env` local dentro de functions; está excluido de Git. Si cambias ese parámetro, vuelve a desplegar Functions.
-
-El comando publica la interfaz, las reglas y las tres funciones `getState`, `mutate` y `claimFirstAdmin` en `us-central1`. Acepta las habilitaciones de APIs y de acceso Storage Rules → Firestore cuando Firebase las solicite.
-
-Al terminar, abre:
-
-**https://mac-store-eba30.web.app**
-
-Para imágenes, configura el CORS del bucket, usando Google Cloud CLI con la misma cuenta administradora:
-
-```bash
-gcloud auth login
-gcloud storage buckets update gs://mac-store-eba30.firebasestorage.app --cors-file=storage-cors.json
-```
-
-Alternativamente, una identidad con credenciales ADC y permiso para actualizar el bucket puede ejecutar `node functions/configure-storage.js`. No se necesita configurar CORS para registrar productos sin imagen.
-
-## 3B. Publicar desde GitHub Actions
-
-Esta opción evita tener que desplegar desde tu computadora después de configurarla.
-
-1. En GitHub > Settings > Environments crea **firebase-production**.
-2. En ese entorno agrega el **secret** `FIREBASE_SERVICE_ACCOUNT`: pega el JSON de una cuenta de servicio del proyecto con permisos suficientes para desplegar Functions, reglas y Hosting, usar la identidad de ejecución y configurar el bucket.
-3. En el mismo entorno agrega la **variable** `MAC_STORE_OWNER_EMAIL` con tu correo real.
-4. Abre Actions > **Publicar MAC Store en Firebase** > Run workflow.
-5. Al finalizar en verde, abre https://mac-store-eba30.web.app.
-
-La cuenta del secret debe ser una identidad de despliegue autorizada. Una clave de Firebase Admin SDK por sí sola no garantiza permisos para desplegar Cloud Functions. Los requisitos IAM dependen de las APIs ya habilitadas y de la identidad de ejecución: consulta la documentación de Functions/IAM o realiza el primer despliegue con la opción 3A. No uses ni publiques claves de una cuenta personal.
-
-El workflow instala dependencias, verifica el proyecto, prepara el correo propietario, despliega interfaz/backend/reglas y configura CORS de imágenes. La clave se escribe solo en un archivo temporal privado del runner y se elimina al terminar.
-
-Para desplegar automáticamente después de cada push a main, agrega una variable de repositorio `MAC_STORE_AUTO_DEPLOY` con valor `true`. Hasta que lo actives, el despliegue se inicia manualmente desde Actions. Los pull requests no reciben las credenciales de producción.
-
-**Nunca subas el JSON de la cuenta de servicio al repositorio.** Solo va en GitHub Secrets.
-
-## 4. Activar el primer administrador
-
-1. Abre la aplicación publicada.
-2. Pulsa **Configurar primer administrador**.
-3. Captura tu nombre, el mismo correo configurado en `BOOTSTRAP_ADMIN_EMAIL` y una contraseña propia de al menos 10 caracteres.
-4. Abre el enlace de verificación que recibirás por correo. Revisa spam si es necesario.
-5. Regresa a la aplicación y pulsa **Ya verifiqué mi correo**.
-6. Se activará el rol administrador. La tienda tendrá dos cajas disponibles y ningún producto ni venta de ejemplo.
-
-Si ya creaste la cuenta, utiliza el mismo correo y contraseña. El flujo también puede continuar después de cerrar/reabrir la página. Una vez existe un administrador inicial, otra cuenta no puede apropiarse de la tienda. Las cuentas sin perfil autorizado no acceden a los datos.
-
-Después crea categorías, proveedores, productos y cajeros. No hay una contraseña predeterminada.
-
-## 5. Primera prueba real
+## Prueba de funcionamiento
 
 1. Crea una categoría y un proveedor.
-2. Crea un producto de prueba: costo real $100, recargo 50%, precio $150, stock inicial 5.
-3. Abre un turno con $1,000.
-4. Vende dos unidades y captura recibido $500: total $300, cambio $200, stock restante 3.
-5. Recarga la página: debe conservarse la venta en Firebase.
-6. Cierra el turno con $1,300: diferencia $0.
-7. Crea un cajero y comprueba que no pueda acceder a administración.
+2. Crea un producto: costo real $100, recargo 50%, stock 5. Precio $150.
+3. Abre turno con $1,000.
+4. Vende dos unidades, recibido $500: total $300, cambio $200, stock restante 3.
+5. Recarga: la venta y las existencias deben conservarse en Firestore.
+6. Cierra con $1,300: diferencia $0.
+7. Crea un cajero desde Usuarios y comprueba sus restricciones.
 
-Estos registros serán reales dentro de tu proyecto. No existe un botón que borre toda la tienda. Si pruebas con operaciones, consérvalas identificadas en observaciones y sigue el procedimiento de anulación antes de cerrar turno si deseas revertir una venta.
+Estas operaciones son reales en tu proyecto. No existe borrado completo de tienda. Las bajas son lógicas y las ventas se anulan con motivo durante un turno abierto.
 
-## GitHub Pages: opción de vista previa
+## Ventas y seguridad
 
-Se incluye el workflow manual **Vista previa en GitHub Pages (opcional)**. En Settings > Pages selecciona GitHub Actions; ejecútalo desde Actions. Publica únicamente la carpeta web, nunca Functions ni tests.
+Las ventas, stock, movimientos, turno y auditoría se guardan en transacciones. El cliente prepara la operación y Firestore Rules valida las escrituras: precios y costos del catálogo, cantidades, totales, pago, cambio, stock no negativo y turno abierto. Las fechas de los documentos se asignan mediante serverTimestamp.
 
-La interfaz funciona en rutas de repositorio porque usa rutas relativas y hash. **Sigue necesitando el backend Firebase desplegado.** Para autenticar, agrega `TU-USUARIO.github.io` a Authorized domains. Para imágenes, agrega el origen HTTPS de Pages al CORS del bucket. Para la operación de la tienda se recomienda la publicación completa en Firebase Hosting descrita arriba.
+Se admiten **8 productos distintos por recibo**, con cantidades repetidas. Para más tipos genera otro recibo. Es un límite explícito para respetar los límites de evaluación y acceso de Rules. No se divide un cobro en escrituras parciales.
 
-## Ejecutar localmente contra Firebase real
+Los reintentos usan el mismo requestId, evitando duplicar ventas o descuentos. El mismo ID con otro contenido se rechaza. Solo se confirma una venta con conexión; no existe cola de ventas offline.
+
+control/revision coordina los cambios. Los catálogos y reportes administrativos se leen completos y se filtran/paginan en cliente. Esta versión es para una tienda de volumen pequeño: las lecturas crecen con el historial y cuentan en las cuotas. Para alto volumen se necesita paginación y consultas selectivas.
+
+## Usuarios sin backend privilegiado
+
+Los roles admin/cashier se leen de users/{uid}, sin custom claims.
+
+- Crear cajero usa una instancia secundaria de Auth en memoria, conservando la sesión del administrador.
+- Puede vincular una cuenta Auth existente sin perfil si se conoce su contraseña actual.
+- Admin modifica nombre, rol y estado del perfil. Desactivarlo bloquea los datos aunque Auth conserve la cuenta.
+- No puedes desactivarte ni degradar tu propio rol; otro administrador debe hacerlo.
+- Cierra el turno antes de desactivar o cambiar el rol de un usuario.
+- Contraseñas existentes se recuperan por correo. Cambiar correo o deshabilitar/eliminar la cuenta Auth se hace desde Firebase Console. No se simulan permisos administrativos de Authentication en el navegador.
+
+## Imágenes en Firestore
+
+JPG/PNG/WebP de hasta 5 MB se reducen a 480 px y comprimen en el navegador. Se guardan en images con máximo **150,000 caracteres de data URL**, aproximadamente 110 KB binarios. Una imagen que no pueda reducirse suficientemente se rechaza.
+
+Se leen autenticadas desde Firestore, sin bucket ni CORS. Al reemplazarlas se crea un documento nuevo; los antiguos pueden limpiarse desde consola cuando ya no estén referenciados. Sus lecturas y almacenamiento consumen cuota. Imágenes antiguas alojadas en Storage deben cargarse nuevamente.
+
+## Otros módulos
+
+Productos, categorías, proveedores y ajustes de inventario con motivo; recargo, margen o precio manual; costos e historial; códigos de barras/SKU únicos; POS por nombre, código, teclado/lector USB o cámara compatible; recibos imprimibles/PDF vía impresión; efectivo, tarjeta y transferencia; entradas, retiros, cortes, diferencias; dashboard, reportes, CSV y auditoría.
+
+Los códigos de barras/SKU permiten letras, números, guion y guion bajo. Los códigos históricos permanecen reservados al producto. El cajero puede ver costos; el recibo del cliente no los muestra.
+
+Tarjeta/transferencia se confirman externamente. No integra terminal bancaria ni facturación fiscal. Moneda MXN, precios finales y cantidades enteras. La cámara requiere soporte BarcodeDetector, HTTPS/localhost y permiso; siempre hay captura manual.
+
+## Ejecutar localmente
+
+Node.js 22 LTS recomendado:
 
 ```bash
 npm start
 ```
 
-Abre http://localhost:8080. No se requieren paquetes para el servidor local. Se conecta al mismo proyecto configurado y **los datos que registres son reales**. No abras index.html directamente con doble clic.
+Abre http://localhost:8080. No hacen falta dependencias para el servidor. Windows puede usar INICIAR_WINDOWS.bat; Mac/Linux, INICIAR_MAC_LINUX.sh. No abras index.html directamente. Las operaciones se guardan en el mismo proyecto real.
 
-`INICIAR_WINDOWS.bat` abre el servidor en Windows. Mac/Linux puede usar `INICIAR_MAC_LINUX.sh`. El registro de ventas requiere conexión a Internet y los servicios ya desplegados.
+## Firebase Hosting opcional
 
-## Pruebas automatizadas
+```bash
+npm install -g firebase-tools
+firebase login
+firebase deploy --project mac-store-eba30 --only firestore,hosting
+```
+
+No inicialices Functions ni Storage. Puedes utilizar las cuotas de los servicios de tu plan.
+
+## Desarrollo y pruebas
 
 ```bash
 npm ci
 npm run check
 ```
 
-Comprueba configuración, ausencia de cuentas de ejemplo en el frontend, sintaxis y las 30 pruebas del dominio.
-
-Para integración y navegador necesitas Firebase CLI, Java 21+ recomendado y Chromium:
+Para integración necesitas Firebase CLI y Java (21+ recomendado):
 
 ```bash
-npm --prefix functions ci
-npx playwright install chromium
-MAC_TEST_UI=1 firebase emulators:exec --project demo-mac-store --only auth,firestore,storage "node tests/firebase.emulator.mjs"
+npm run test:firebase
 ```
 
-En PowerShell establece primero `$env:MAC_TEST_UI="1"` y ejecuta el comando sin el prefijo `MAC_TEST_UI=1`. El escenario usa un proyecto de emulador aislado; no apunta al proyecto real. Comprueba la primera activación, correo verificado, roles, ventas concurrentes, idempotencia, cierre, reglas de imágenes y el frontend conectado.
+Para navegador:
 
-Los datos exclusivos de pruebas están en tests/fixtures.js, no en web ni en Functions. El SDK ya viene compilado en web/vendor; se regenera con `npm run build:sdk`. Después de cambiar el dominio compartido, ejecuta `npm run sync`.
+```bash
+npx playwright install chromium
+npm run test:ui
+```
 
-## Estructura y seguridad
+Las pruebas exigen emuladores y el proyecto aislado demo-mac-store. No modifican el proyecto real. firebase-admin es una dependencia exclusiva de pruebas para preparar documentos equivalentes a los creados desde consola: no forma parte del sitio ni se despliega como backend.
 
-- `web/`: única carpeta que se publica como interfaz.
-- `functions/`: backend Firebase; `domain.js` refleja el dominio compartido.
-- `firestore.rules` / `storage.rules`: permisos por rol; escrituras operativas directas bloqueadas.
-- `.github/workflows/`: publicación y validación.
-- `tests/`: escenarios no publicados.
-- `docs/`: esquema, aceptación y resultados.
-- `.firebaserc`: proyecto público seleccionado.
+build:sdk reconstruye el SDK Auth + Firestore. prepare:pages genera site/ con los archivos publicables. Los fixtures están únicamente en tests/.
 
-El navegador conserva la sesión de Firebase y el ID de un cobro pendiente para reintentos; **no conserva una base de ventas/inventario operativa**. Las confirmaciones se reciben del servidor. El cajero puede ver costos conforme a los requisitos originales; el recibo del cliente no los incluye.
+## Diagnóstico
 
-## Alcance de esta versión
+- **Falta tu perfil users/UID**: la contraseña fue aceptada; crea ese documento con role y active.
+- **Firestore rechazó la operación**: publica las reglas nuevas y verifica role/active.
+- **Credenciales incorrectas**: revisa Authentication o usa Recuperar contraseña.
+- **Cuota alcanzada**: revisa Uso. La operación fallida no se informa como confirmada.
+- Si sigue apareciendo el error genérico de la versión anterior, comprueba que publicaste todo el frontend y recarga sin caché.
 
-Una tienda, cantidades enteras y precios finales MXN. Tarjeta y transferencia se registran después de confirmar externamente el pago; no integra una terminal bancaria. Los recibos no son facturas fiscales. La cámara depende de soporte BarcodeDetector, HTTPS y permiso; siempre existe captura manual o lector USB.
+No se modificó ni publicó el proyecto real desde esta entrega. Se verificó con emuladores; la primera conexión a tu cuenta depende de que publiques reglas y habilites el perfil.
 
-Las mutaciones mantienen la estrategia transaccional de la versión anterior: leen el conjunto operativo y coordinan cambios mediante control/revision. Los listados se filtran/paginan en el cliente. Está destinada a una tienda de volumen pequeño; costo y latencia crecen con el historial. Para gran volumen se requieren consultas selectivas y paginación de servidor. Las anulaciones completas solo se permiten en turnos abiertos. La exportación JSON es de consulta; no restaura Authentication.
+## Fuentes oficiales
 
-No se desplegó ni se validó en una cuenta real desde este paquete: no se proporcionó acceso administrativo a Firebase/GitHub. Las pruebas incluidas usan emuladores y la primera conexión real debe verificarse después del despliegue. No promete funcionamiento con servicios desactivados o permisos externos sin configurar.
-
-## Documentación oficial
-
-- https://firebase.google.com/docs/functions/config-env
-- https://firebase.google.com/docs/auth/admin/custom-claims
-- https://firebase.google.com/docs/functions/get-started
-- https://firebase.google.com/docs/hosting/quickstart
-- https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
+- https://firebase.google.com/docs/firestore/security/rules-conditions
+- https://firebase.google.com/docs/firestore/quotas
+- https://firebase.google.com/docs/auth/web/manage-users
 
 Creado por Altos Film — https://altosfilm.com

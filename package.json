@@ -1,24 +1,24 @@
 {
   "name": "mac-store",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node scripts/serve.js",
     "test": "node --test tests/*.test.js",
-    "sync": "node scripts/sync.js",
-    "check": "node scripts/check-release.mjs && node --check web/src/app.js && node --check functions/index.js && npm test",
+    "check": "node scripts/check-release.mjs && node --check web/src/app.js && node --check web/src/firestore-store.js && npm test",
     "test:ui": "node scripts/test-ui.mjs",
-    "test:firebase": "firebase emulators:exec --project demo-mac-store --only auth,firestore,storage \"node tests/firebase.emulator.mjs\"",
+    "test:firebase": "firebase emulators:exec --project demo-mac-store --only auth,firestore \"node tests/firestore.emulator.mjs\"",
     "build:sdk": "node scripts/build-sdk.mjs",
-    "deploy:backend": "firebase deploy --only functions,firestore,storage",
     "deploy:hosting": "firebase deploy --only hosting",
-    "prepare:pages": "node scripts/prepare-pages.mjs"
+    "prepare:pages": "node scripts/prepare-pages.mjs",
+    "deploy:rules": "firebase deploy --only firestore"
   },
-  "description": "MAC Store · POS e inventario con Firebase, sin modo de demostración",
+  "description": "MAC Store · Firebase Authentication y Cloud Firestore directo",
   "devDependencies": {
     "esbuild": "^0.25.10",
     "firebase": "^12.4.0",
+    "firebase-admin": "^13.5.0",
     "playwright": "^1.51.1"
   }
 }

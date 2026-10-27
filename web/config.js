@@ -7,5 +7,4 @@ export const firebaseConfig = {
   messagingSenderId: '846070152675',
   appId: '1:846070152675:web:a03ca51436c3237a8834d6'
 };
-export const functionsRegion = 'us-central1';
 export const useEmulators = false;

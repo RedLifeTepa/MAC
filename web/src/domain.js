@@ -1,4 +1,4 @@
-// Reglas de negocio de MAC Store, aplicadas en Cloud Functions. Importes en centavos.
+// Reglas de negocio de MAC Store, aplicadas en transacciones y reglas Firestore. Importes en centavos.
 export const COLLECTIONS = ['users','products','categories','suppliers','registers','sales','shifts','inventoryMovements','cashMovements','logs'];
 export function emptyState(){ return {settings:{name:'MAC Store',currency:'MXN',timezone:'America/Mexico_City',receiptMessage:'¡Gracias por tu compra!'},...Object.fromEntries(COLLECTIONS.map(k=>[k,[]]))}; }
 export function check(ok,message){if(!ok) throw new Error(message);}
@@ -18,7 +18,7 @@ export function apply(state,actorId,action,data,now=new Date().toISOString(),id=
  if(action==='product.save'){
   admin(u);const p=d.id?s.products.find(x=>x.id===d.id):null;check(!d.id||p,'Producto no encontrado.');
   const name=text(d.name,'Nombre'),barcode=String(d.barcode||'').trim(),sku=String(d.sku||'').trim();
-  check(!barcode||/^[A-Za-z0-9_-]{1,64}$/.test(barcode),'Código inválido. Usa letras, números, guion o guion bajo.');check(sku.length<=64,'SKU demasiado largo.');
+  check(!barcode||/^[A-Za-z0-9_-]{1,64}$/.test(barcode),'Código inválido. Usa letras, números, guion o guion bajo.');check(!sku||/^[A-Za-z0-9_-]{1,64}$/.test(sku),'SKU inválido: usa letras, números, guion o guion bajo.');
   check(!s.products.some(x=>x.id!==p?.id&&((barcode&&x.barcode===barcode)||(sku&&x.sku===sku))),'El código de barras o SKU ya está registrado.');
   check(find(s,'categories',d.categoryId).active,'Categoría inactiva.');check(find(s,'suppliers',d.supplierId).active,'Proveedor inactivo.');
   money(d.costCents,'Costo');money(d.realCostCents,'Costo real');integer(d.minStock,'Stock mínimo',0,1000000);
@@ -26,7 +26,7 @@ export function apply(state,actorId,action,data,now=new Date().toISOString(),id=
   if(p){Object.assign(p,fields);p.lowStock=p.stock<=p.minStock;result={id:p.id};}
   else{integer(d.initialStock,'Stock inicial',0,1000000);const np={id,...fields,stock:0,lowStock:true,createdAt:now};s.products.push(np);if(d.initialStock>0)movement(np,d.initialStock,'initial',null,'Inventario inicial','initial');result={id};} log(result.id);
  }else if(action==='product.delete'){
-  admin(u);const p=find(s,'products',d.id);if(s.inventoryMovements.some(x=>x.productId===p.id)||s.sales.some(x=>x.items.some(i=>i.productId===p.id))){p.active=false;p.updatedAt=now;}else s.products=s.products.filter(x=>x.id!==p.id);log(p.id);
+  admin(u);const p=find(s,'products',d.id);p.active=false;p.updatedAt=now;log(p.id);
  }else if(action==='inventory.adjust'){
   admin(u);const p=find(s,'products',d.productId);integer(d.qtyDelta,'Ajuste',-1000000,1000000);check(d.qtyDelta!==0,'Captura una cantidad distinta de cero.');movement(p,d.qtyDelta,'adjustment',null,text(d.reason,'Motivo',500),'adjust');log(p.id,{qtyDelta:d.qtyDelta,reason:d.reason});
  }else if(action==='catalog.save'){
@@ -50,7 +50,7 @@ export function apply(state,actorId,action,data,now=new Date().toISOString(),id=
   shift.expectedCashCents=shift.openingCashCents+shift.payments.cash+shift.cashInCents-shift.cashOutCents;shift.closingCashCents=d.closingCashCents;shift.differenceCents=d.closingCashCents-shift.expectedCashCents;shift.closedAt=now;shift.status='closed';shift.notes=String(d.notes||'').slice(0,500);find(s,'users',shift.cashierId).openShiftId=null;find(s,'registers',shift.registerId).openShiftId=null;log(shift.id);result={id:shift.id};
  }else if(action==='sale.create'){
   text(d.requestId,'ID de solicitud',100);check(/^[a-zA-Z0-9_-]+$/.test(d.requestId),'ID inválido.');const saleId=`${u.id}_${d.requestId}`;
-  check(Array.isArray(d.items)&&d.items.length>0&&d.items.length<=50,'El carrito admite de 1 a 50 líneas.');const normalized=d.items.map(i=>({productId:text(i.productId,'Producto',150),qty:integer(i.qty,'Cantidad',1,10000)})).sort((a,b)=>a.productId.localeCompare(b.productId));check(new Set(normalized.map(x=>x.productId)).size===normalized.length,'Combina las líneas del mismo producto.');
+  check(Array.isArray(d.items)&&d.items.length>0&&d.items.length<=8,'El carrito admite de 1 a 8 productos distintos por venta.');const normalized=d.items.map(i=>({productId:text(i.productId,'Producto',150),qty:integer(i.qty,'Cantidad',1,10000)})).sort((a,b)=>a.productId.localeCompare(b.productId));check(new Set(normalized.map(x=>x.productId)).size===normalized.length,'Combina las líneas del mismo producto.');
   check(['cash','card','transfer'].includes(d.paymentMethod),'Forma de pago inválida.');money(d.paymentReceivedCents,'Recibido');money(d.expectedTotalCents,'Total');
   const fingerprint=JSON.stringify({shiftId:d.shiftId,items:normalized,paymentMethod:d.paymentMethod,paymentReceivedCents:d.paymentReceivedCents,expectedTotalCents:d.expectedTotalCents});const existing=s.sales.find(x=>x.id===saleId);if(existing){check(existing.fingerprint===fingerprint,'Esta solicitud ya se utilizó con otros datos.');return {state:s,result:{id:saleId}};}
   const shift=find(s,'shifts',d.shiftId);check(shift.cashierId===u.id&&shift.status==='open'&&u.openShiftId===shift.id,'Abre tu turno antes de vender.');check(find(s,'registers',shift.registerId).openShiftId===shift.id,'La caja no está asignada al turno.');

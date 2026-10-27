@@ -1,18 +1,12 @@
-name: Publicar MAC Store en Firebase
+# Reemplaza el workflow de backend de versiones anteriores. No despliega servicios.
+name: Validar variante Firestore
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: firebase-backend
-  cancel-in-progress: false
 jobs:
-  deploy:
-    if: github.event_name == 'workflow_dispatch' || vars.MAC_STORE_AUTO_DEPLOY == 'true'
+  validate:
     runs-on: ubuntu-latest
-    environment: firebase-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,21 +15,3 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm --prefix functions ci
-      - run: npm install --global firebase-tools
-      - name: Preparar credenciales y correo propietario
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          MAC_STORE_OWNER_EMAIL: ${{ vars.MAC_STORE_OWNER_EMAIL }}
-        run: node scripts/prepare-ci.mjs
-      - name: Publicar sistema, funciones y reglas
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
-        run: firebase deploy --project mac-store-eba30 --only functions,firestore,storage,hosting --non-interactive
-      - name: Configurar imágenes autenticadas
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
-        run: node functions/configure-storage.js
-      - name: Limpiar credenciales temporales
-        if: always()
-        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"

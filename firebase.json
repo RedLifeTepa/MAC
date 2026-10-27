@@ -2,7 +2,6 @@
   "hosting": {
     "public": "web",
     "ignore": [
-      "firebase.json",
       "**/.*",
       "**/node_modules/**"
     ],
@@ -15,23 +14,6 @@
             "value": "no-cache"
           }
         ]
-      },
-      {
-        "source": "**",
-        "headers": [
-          {
-            "key": "X-Content-Type-Options",
-            "value": "nosniff"
-          },
-          {
-            "key": "Referrer-Policy",
-            "value": "strict-origin-when-cross-origin"
-          },
-          {
-            "key": "X-Frame-Options",
-            "value": "DENY"
-          }
-        ]
       }
     ]
   },
@@ -39,37 +21,12 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "storage": {
-    "rules": "storage.rules"
-  },
-  "functions": [
-    {
-      "source": "functions",
-      "codebase": "default",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "bootstrap.js",
-        "configure-storage.js"
-      ],
-      "predeploy": [
-        "npm --prefix \"$PROJECT_DIR\" run sync"
-      ]
-    }
-  ],
   "emulators": {
     "auth": {
       "port": 9099
     },
-    "functions": {
-      "port": 5001
-    },
     "firestore": {
       "port": 8081
-    },
-    "storage": {
-      "port": 9199
     },
     "ui": {
       "enabled": true,
