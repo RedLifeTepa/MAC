@@ -1,0 +1,19 @@
+{
+  "name": "mac-store-pos",
+  "version": "1.0.0",
+  "description": "Sistema Web POS, Almacén y Corte Diario MAC Store — Creado por Altos Film",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npx serve . -l 5000",
+    "dev": "npx vite",
+    "deploy": "firebase deploy --only firestore:rules,hosting"
+  },
+  "dependencies": {
+    "firebase": "^10.13.1",
+    "chart.js": "^4.4.1",
+    "dayjs": "^1.11.10",
+    "sweetalert2": "^11.10.0"
+  },
+  "author": "Altos Film — https://altosfilm.com"
+}
