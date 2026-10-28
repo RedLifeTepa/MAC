@@ -1,6 +1,6 @@
-# MAC Store 1.2.0 · Firestore directo
+# MAC Store 1.3.0 · Interfaz clásica + Firestore directo
 
-Inventario, POS, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Preparado para GitHub y publicación estática.
+Inventario, POS, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Esta edición recupera la interfaz clásica azul, la navegación horizontal, el logotipo y el flujo visual del prototipo anterior, conservando la capa segura y funcional de la versión 1.2.0.
 
 La configuración pública apunta a **mac-store-eba30**. Conserva tu cuenta de Authentication. Para entrar debes publicar las nuevas reglas y crear el perfil inicial: Authentication valida la contraseña; Firestore determina el rol.
 
@@ -32,7 +32,7 @@ Al entrar como administrador se crean la configuración y dos cajas. El catálog
 
 ## Publicar en GitHub Pages
 
-1. Sube TODO el contenido de MAC-Store-v1.2.0-Firestore a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
+1. Sube TODO el contenido de MAC-Store-v1.3.0-Classic-UI a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
 2. En Settings > Pages > Source selecciona **GitHub Actions**.
 3. Usa la rama main. El workflow Publicar MAC Store en GitHub Pages publica al hacer push; también permite ejecución manual.
 4. Espera a que termine en verde y abre la URL que muestra Pages.

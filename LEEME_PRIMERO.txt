@@ -1,4 +1,4 @@
-MAC STORE 1.2.0 · FIRESTORE DIRECTO
+MAC STORE 1.3.0 · INTERFAZ CLÁSICA + FIRESTORE DIRECTO
 Creado por Altos Film — https://altosfilm.com
 
 Ya NO usa Cloud Functions ni Cloud Storage.
