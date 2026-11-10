@@ -1,6 +1,6 @@
-# MAC Store 1.4.0 · Descuentos, apartados y SKU consecutivo
+# MAC Store 1.5.0 · Notas posventa, descuentos y apartados
 
-Inventario, POS, descuentos, apartados, abonos, liquidaciones, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Conserva la interfaz clásica azul y la conexión funcional directa a Firestore.
+Inventario, POS, notas posventa, descuentos, apartados, abonos, liquidaciones, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Conserva la interfaz clásica azul y la conexión funcional directa a Firestore.
 
 La configuración pública apunta a **mac-store-eba30**. Conserva tu cuenta de Authentication. Para entrar debes publicar las nuevas reglas y crear el perfil inicial: Authentication valida la contraseña; Firestore determina el rol.
 
@@ -32,7 +32,7 @@ Al entrar como administrador se crean la configuración y dos cajas. El catálog
 
 ## Publicar en GitHub Pages
 
-1. Sube TODO el contenido de MAC-Store-v1.4.0-Apartados a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
+1. Sube TODO el contenido de MAC-Store-v1.5.0-Notas-Posventa a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
 2. En Settings > Pages > Source selecciona **GitHub Actions**.
 3. Usa la rama main. El workflow Publicar MAC Store en GitHub Pages publica al hacer push; también permite ejecución manual.
 4. Espera a que termine en verde y abre la URL que muestra Pages.
@@ -77,6 +77,18 @@ Los reintentos usan el mismo requestId, evitando duplicar ventas o descuentos. E
 - Los productos nuevos reciben automáticamente `MAC-033`, `MAC-034`, `MAC-035`… tomando como referencia el mayor SKU existente. El campo no se edita manualmente.
 
 Para esta actualización es obligatorio volver a publicar **REGLAS_FIRESTORE.txt** antes de usar descuentos o apartados en GitHub Pages.
+
+## Notas posventa
+
+- El botón **Notas** aparece únicamente en cada operación de **Ventas / Reportes**.
+- La nota puede relacionarse con un producto de esa venta o con la venta en general.
+- Cada registro conserva comentario, producto, responsable y fecha del servidor.
+- Las notas son acumulativas: agregar una nueva no sobrescribe las anteriores.
+- El administrador puede anotar cualquier venta; un cajero únicamente sus propias ventas.
+- Las notas no cambian precios, inventario, corte ni ticket del cliente.
+- La exportación CSV de ventas incluye el historial de notas posventa.
+
+Para habilitar las notas también es obligatorio publicar nuevamente **REGLAS_FIRESTORE.txt**.
 
 control/revision coordina los cambios. Los catálogos y reportes administrativos se leen completos y se filtran/paginan en cliente. Esta versión es para una tienda de volumen pequeño: las lecturas crecen con el historial y cuentan en las cuotas. Para alto volumen se necesita paginación y consultas selectivas.
 

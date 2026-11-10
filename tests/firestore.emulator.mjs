@@ -39,6 +39,9 @@ let state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.users.l
 function order(requestId,items=[{productId:'prod-1',qty:2}],total=30000){return {requestId,shiftId,items,expectedTotalCents:total,paymentMethod:'cash',paymentReceivedCents:total+20000};}
 const first=await performAction(sdk,cashier.db,cashier.uid,'sale.create',order('first-sale'));
 state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.sales.length,1);assert.equal(state.products.find(p=>p.id==='prod-1').stock,18);assert.equal(state.sales[0].changeCents,20000);
+const saleNote=await performAction(sdk,cashier.db,cashier.uid,'sale.note',{saleId:first.id,productId:'prod-1',note:'El empaque estaba abierto al entregar.'});
+state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.saleNotes.find(x=>x.id===saleNote.id).productName,'Mouse inalámbrico');
+await assert.rejects(()=>sdk.setDoc(sdk.doc(cashier.db,'saleNotes','nota-falsa'),{saleId:first.id,saleCashierId:cashier.uid,productId:'prod-1',productName:'Mouse inalámbrico',note:'Nota falsificada',actorId:'otro-usuario',createdAt:sdk.serverTimestamp()}));
 const discounted=await performAction(sdk,cashier.db,cashier.uid,'sale.create',{requestId:'discount-10',shiftId,items:[{productId:'prod-2',qty:1}],discountPercent:10,expectedTotalCents:44100,paymentMethod:'cash',paymentReceivedCents:50000});
 state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.sales.find(x=>x.id===discounted.id).discountCents,4900);assert.equal(state.sales.find(x=>x.id===discounted.id).totalSaleCents,44100);
 const layaway=await performAction(sdk,cashier.db,cashier.uid,'layaway.create',{shiftId,items:[{productId:'prod-3',qty:1}],customerName:'Cliente Firestore',phone:'378 123 4567',discountPercent:10,initialPaymentCents:10000,paymentMethod:'cash'});
@@ -116,13 +119,15 @@ if(process.env.MAC_TEST_UI==='1'){
   await page.locator('a[href="#/shifts"]').first().click();await page.locator('[data-action="shift-open"]').click();await page.locator('#f-openingCashCents').fill('1000');await page.locator('#modal-form button[type="submit"]').click();await page.waitForSelector('dialog:not([open])',{state:'attached'});
   await page.locator('a[href="#/pos"]').click();await page.locator('.product-card[data-id="prod-3"]').click();await page.locator('#pos-discount').fill('10');await page.locator('#pos-discount').dispatchEvent('change');await page.waitForSelector('button:has-text("Cobrar $621.00")');await page.locator('[data-action="pay"]').click();await page.locator('#f-paymentReceivedCents').fill('1000');await page.locator('#modal-form button[type="submit"]').click();
   await page.waitForSelector('.receipt');assert.match(await page.locator('.receipt').innerText(),/Descuento \(10%\)/);assert.match(await page.locator('.receipt').innerText(),/379\.00/);await page.locator('[data-action="close"]').first().click();
+  await page.locator('a[href="#/reports"]').click();await page.locator('[data-action="sale-notes"]').first().click();await page.locator('#f-productId').selectOption('prod-3');await page.locator('#f-note').fill('El empaque estaba abierto.');await page.locator('#modal-form button[type="submit"]').click();await page.waitForSelector('.note-row');assert.match(await page.locator('.note-row').innerText(),/empaque estaba abierto/);await page.locator('[data-action="close"]').first().click();
+  await page.locator('a[href="#/pos"]').click();
   await page.locator('.product-card[data-id="prod-4"]').click();await page.locator('[data-action="layaway-new"]').click();await page.locator('#f-customerName').fill('Cliente UI');await page.locator('#f-phone').fill('3781234567');await page.locator('#f-initialPaymentCents').fill('100');await page.locator('#modal-form button[type="submit"]').click();await page.waitForSelector('.receipt');assert.match(await page.locator('.receipt').innerText(),/TICKET DE ABONO/);await page.locator('[data-action="close"]').first().click();
   await page.locator('a[href="#/layaways"]').click();await page.waitForSelector('h1:has-text("Apartados")');assert.match(await page.locator('body').innerText(),/Cliente UI/);
   await page.reload();await page.waitForSelector('h1:has-text("Apartados")');
   for(const [width,height]of [[768,1024],[390,844]]){await page.setViewportSize({width,height});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
   assert.equal(errors.length,0,errors.join('; '));
-  console.log('UI OK: descuento, ticket, apartado, stock reservado, persistencia y diseño móvil.');
+  console.log('UI OK: descuento, nota posventa, ticket, apartado, stock reservado, persistencia y diseño móvil.');
  }finally{await browser.close();child.kill();}
 }
-console.log('FIRESTORE OK: roles, descuentos, apartados, abonos, liquidación, concurrencia, corte e imágenes.');
+console.log('FIRESTORE OK: roles, descuentos, notas posventa, apartados, abonos, liquidación, concurrencia, corte e imágenes.');
 process.exit(0);

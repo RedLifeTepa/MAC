@@ -14,10 +14,11 @@ export async function loadState(sdk,db,uid){
  if(!profile.exists())throw Error(`Cuenta autenticada, pero falta tu perfil en Firestore: users/${uid}. Crea ese documento como indica LEEME_PRIMERO.txt.`);
  const u=fromDoc(profile);if(!u.active||!['admin','cashier'].includes(u.role))throw Error('Tu perfil está inactivo o no tiene un rol válido.');
  const s=emptyState(),admin=u.role==='admin';
- const collections=admin?COLLECTIONS.filter(c=>c!=='users'):['products','categories','registers','sales','shifts','cashMovements','layaways','layawayPayments'];
+ const collections=admin?COLLECTIONS.filter(c=>c!=='users'):['products','categories','registers','sales','saleNotes','shifts','cashMovements','layaways','layawayPayments'];
  const snapshots=await Promise.all(collections.map(c=>{
   let query=sdk.collection(db,c);
   if(!admin&&['sales','shifts','cashMovements'].includes(c))query=sdk.query(query,sdk.where('cashierId','==',uid));
+  if(!admin&&c==='saleNotes')query=sdk.query(query,sdk.where('saleCashierId','==',uid));
   return sdk.getDocsFromServer(query);
  }));
  collections.forEach((c,i)=>s[c]=snapshots[i].docs.map(fromDoc));
@@ -42,7 +43,7 @@ async function cashierPaths(sdk,db,uid,action,data,operationId){
  const paths=new Set([`users/${uid}`,'settings/store']);
  const user=(await sdk.getDocFromServer(sdk.doc(db,'users',uid))).data();
  if(!user?.active)throw Error('Usuario inactivo o sin perfil.');
- if(!['sale.create','shift.open','shift.close','cash.move','layaway.create','layaway.payment'].includes(action))throw Error('Esta acción requiere administrador.');
+ if(!['sale.create','sale.note','shift.open','shift.close','cash.move','layaway.create','layaway.payment'].includes(action))throw Error('Esta acción requiere administrador.');
  let shiftId=data.shiftId||user.openShiftId;
  if(shiftId){
   paths.add(`shifts/${shiftId}`);
@@ -53,6 +54,10 @@ async function cashierPaths(sdk,db,uid,action,data,operationId){
  if(action==='sale.create'){
   paths.add(`sales/${uid}_${data.requestId}`);
   for(const i of data.items||[])paths.add(`products/${i.productId}`);
+ }
+ if(action==='sale.note'){
+  paths.add(`sales/${data.saleId}`);
+  paths.add(`saleNotes/${operationId}`);
  }
  if(action==='layaway.create'){
   paths.add(`layaways/${operationId}`);

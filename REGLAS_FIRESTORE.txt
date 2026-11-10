@@ -199,6 +199,27 @@ service cloud.firestore {
     && request.resource.data.voidedAt==request.time && request.resource.data.voidedBy==request.auth.uid
     && shortText(request.resource.data.voidReason,500) && get(/databases/$(database)/documents/shifts/$(resource.data.shiftId)).data.status=='open';
   }
+  function validNoteProduct(sale,p,name){
+   return (p==null && name=='Venta en general')
+    || (sale.items.size()>0 && sale.items[0].productId==p && sale.items[0].name==name)
+    || (sale.items.size()>1 && sale.items[1].productId==p && sale.items[1].name==name)
+    || (sale.items.size()>2 && sale.items[2].productId==p && sale.items[2].name==name)
+    || (sale.items.size()>3 && sale.items[3].productId==p && sale.items[3].name==name)
+    || (sale.items.size()>4 && sale.items[4].productId==p && sale.items[4].name==name)
+    || (sale.items.size()>5 && sale.items[5].productId==p && sale.items[5].name==name)
+    || (sale.items.size()>6 && sale.items[6].productId==p && sale.items[6].name==name)
+    || (sale.items.size()>7 && sale.items[7].productId==p && sale.items[7].name==name);
+  }
+  match /saleNotes/{id}{
+   allow get: if admin() || (staff() && (!exists(/databases/$(database)/documents/saleNotes/$(id)) || resource.data.saleCashierId==request.auth.uid));
+   allow list: if admin() || (staff() && resource.data.saleCashierId==request.auth.uid);
+   allow create: if staff() && request.resource.data.keys().hasOnly(['saleId','saleCashierId','productId','productName','note','actorId','createdAt'])
+    && request.resource.data.actorId==request.auth.uid && request.resource.data.createdAt==request.time
+    && shortText(request.resource.data.note,1000)
+    && saleAfter(request.resource.data.saleId).cashierId==request.resource.data.saleCashierId
+    && (admin() || request.resource.data.saleCashierId==request.auth.uid)
+    && validNoteProduct(saleAfter(request.resource.data.saleId),request.resource.data.productId,request.resource.data.productName);
+  }
   function validLayawayLine(items,n,id){
    return n>=items.size() || (productAfter(items[n].productId).lastLayawayId==id && productAfter(items[n].productId).lastLayawayIndex==n);
   }
@@ -269,6 +290,7 @@ service cloud.firestore {
       || (request.resource.data.action=='shift.open' && shiftAfter(request.resource.data.entityId).cashierId==request.auth.uid && shiftAfter(request.resource.data.entityId).openedAt==request.time)
       || (request.resource.data.action=='shift.close' && shiftAfter(request.resource.data.entityId).cashierId==request.auth.uid && shiftAfter(request.resource.data.entityId).closedAt==request.time)
       || (request.resource.data.action=='cash.move' && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.actorId==request.auth.uid && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.createdAt==request.time)
+      || (request.resource.data.action=='sale.note' && getAfter(/databases/$(database)/documents/saleNotes/$(id)).data.saleId==request.resource.data.entityId && getAfter(/databases/$(database)/documents/saleNotes/$(id)).data.actorId==request.auth.uid)
       || (request.resource.data.action in ['layaway.create','layaway.payment'] && layawayAfter(request.resource.data.entityId).cashierId is string));
   }
   match /images/{id}{

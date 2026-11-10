@@ -1,4 +1,4 @@
-MAC STORE 1.4.0 · DESCUENTOS + APARTADOS + SKU CONSECUTIVO
+MAC STORE 1.5.0 · NOTAS POSVENTA + DESCUENTOS + APARTADOS
 Creado por Altos Film — https://altosfilm.com
 
 Ya NO usa Cloud Functions ni Cloud Storage.
@@ -40,6 +40,9 @@ Las cajas se crean al acceder; el catálogo comienza vacío.
 Abre turno para cobrar.
 
 CAMBIOS DE ESTA VERSIÓN
+- Botón Notas en cada venta del apartado Ventas / Reportes.
+- Notas por producto o por venta general, con responsable y fecha.
+- Historial acumulativo incluido en la exportación CSV.
 - Descuento porcentual en la compra, visible en venta, reporte y ticket.
 - Apartados con nombre, teléfono, stock reservado, abonos y liquidación.
 - Tickets de apartado, abono y liquidación.
@@ -47,7 +50,7 @@ CAMBIOS DE ESTA VERSIÓN
 - SKU automático desde MAC-033 y siguientes.
 
 IMPORTANTE: aunque la versión anterior ya funcionara, debes publicar nuevamente
-REGLAS_FIRESTORE.txt para habilitar estas operaciones.
+REGLAS_FIRESTORE.txt para habilitar estas operaciones y las notas posventa.
 
 Esta variante admite hasta 8 productos DISTINTOS por recibo, con varias
 unidades de cada producto. Para más tipos, genera otro recibo. Ese límite
