@@ -39,8 +39,14 @@ let state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.users.l
 function order(requestId,items=[{productId:'prod-1',qty:2}],total=30000){return {requestId,shiftId,items,expectedTotalCents:total,paymentMethod:'cash',paymentReceivedCents:total+20000};}
 const first=await performAction(sdk,cashier.db,cashier.uid,'sale.create',order('first-sale'));
 state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.sales.length,1);assert.equal(state.products.find(p=>p.id==='prod-1').stock,18);assert.equal(state.sales[0].changeCents,20000);
+const discounted=await performAction(sdk,cashier.db,cashier.uid,'sale.create',{requestId:'discount-10',shiftId,items:[{productId:'prod-2',qty:1}],discountPercent:10,expectedTotalCents:44100,paymentMethod:'cash',paymentReceivedCents:50000});
+state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.sales.find(x=>x.id===discounted.id).discountCents,4900);assert.equal(state.sales.find(x=>x.id===discounted.id).totalSaleCents,44100);
+const layaway=await performAction(sdk,cashier.db,cashier.uid,'layaway.create',{shiftId,items:[{productId:'prod-3',qty:1}],customerName:'Cliente Firestore',phone:'378 123 4567',discountPercent:10,initialPaymentCents:10000,paymentMethod:'cash'});
+state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.layaways.find(x=>x.id===layaway.id).balanceCents,52100);assert.equal(state.products.find(p=>p.id==='prod-3').stock,7);
+const liquidation=await performAction(sdk,cashier.db,cashier.uid,'layaway.payment',{requestId:'liquidate-1',layawayId:layaway.id,shiftId,amountCents:52100,paymentMethod:'card'});
+state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(liquidation.liquidated,true);assert.equal(state.layaways.find(x=>x.id===layaway.id).status,'liquidated');assert.equal(state.products.find(p=>p.id==='prod-3').stock,7);
 await performAction(sdk,cashier.db,cashier.uid,'sale.create',order('first-sale'));
-assert.equal((await loadState(sdk,cashier.db,cashier.uid)).sales.length,1);
+assert.equal((await loadState(sdk,cashier.db,cashier.uid)).sales.length,2);
 await assert.rejects(()=>performAction(sdk,cashier.db,cashier.uid,'sale.create',{...order('first-sale'),paymentReceivedCents:99999}),/otros datos/);
 // Transacción completa manipulada después del cálculo del cliente.
 const baseShift=state.shifts.find(x=>x.id===shiftId);
@@ -53,11 +59,11 @@ const malicious={...sdk,runTransaction:(db,callback)=>sdk.runTransaction(db,tx=>
  }
 }))};
 await assert.rejects(()=>performAction(malicious,cashier.db,cashier.uid,'sale.create',order('tampered-price')));
-assert.equal((await loadState(sdk,cashier.db,cashier.uid)).sales.length,1);
+assert.equal((await loadState(sdk,cashier.db,cashier.uid)).sales.length,2);
 // Ocho productos en una venta: comprueba los límites reales de evaluación de Rules.
 const maxItems=seed.products.map(p=>({productId:p.id,qty:1}));const maxTotal=seed.products.reduce((n,p)=>n+p.priceCents,0);
 await performAction(sdk,cashier.db,cashier.uid,'sale.create',order('eight-products',maxItems,maxTotal));
-state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.sales.length,2);
+state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.sales.length,3);
 await performAction(sdk,cashier.db,cashier.uid,'cash.move',{shiftId,type:'in',amountCents:10000,reason:'Cambio de prueba'});
 await performAction(sdk,cashier.db,cashier.uid,'cash.move',{shiftId,type:'out',amountCents:20000,reason:'Resguardo de prueba'});
 // Intentos directos: falsificar precio, omitir movimientos y alterar totales.
@@ -71,7 +77,7 @@ await performAction(sdk,admin.db,admin.uid,'inventory.adjust',{productId:'prod-1
 const concurrency=await Promise.allSettled([performAction(sdk,cashier.db,cashier.uid,'sale.create',order('last-a',[{productId:'prod-1',qty:1}],15000)),performAction(sdk,cashier.db,cashier.uid,'sale.create',order('last-b',[{productId:'prod-1',qty:1}],15000))]);
 assert.equal(concurrency.filter(x=>x.status==='fulfilled').length,1,JSON.stringify(concurrency));
 state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.products.find(p=>p.id==='prod-1').stock,0);
-const expected=state.shifts[0].openingCashCents+state.shifts[0].payments.cash+state.shifts[0].cashInCents-state.shifts[0].cashOutCents;
+const expected=state.shifts[0].openingCashCents+state.shifts[0].payments.cash+state.shifts[0].layawayPayments.cash+state.shifts[0].cashInCents-state.shifts[0].cashOutCents;
 await performAction(sdk,cashier.db,cashier.uid,'shift.close',{shiftId,closingCashCents:expected,notes:'Cuadrado'});
 state=await loadState(sdk,cashier.db,cashier.uid);assert.equal(state.shifts[0].differenceCents,0);assert.equal(state.users[0].openShiftId,null);
 await assert.rejects(()=>performAction(sdk,cashier.db,cashier.uid,'sale.create',order('after-close')),/turno/);
@@ -108,13 +114,15 @@ if(process.env.MAC_TEST_UI==='1'){
   await page.locator('[data-action="logout"]').click();await page.locator('#email').fill('nuevo@example.com');await page.locator('#password').fill('Nuevo2026!');await page.locator('#login-form button').click();
   await page.waitForSelector('h1:has-text("Punto de venta")');assert.equal(await page.locator('a[href="#/users"]').count(),0);
   await page.locator('a[href="#/shifts"]').first().click();await page.locator('[data-action="shift-open"]').click();await page.locator('#f-openingCashCents').fill('1000');await page.locator('#modal-form button[type="submit"]').click();await page.waitForSelector('dialog:not([open])',{state:'attached'});
-  await page.locator('a[href="#/pos"]').click();await page.locator('.product-card[data-id="prod-3"]').click();await page.locator('[data-action="pay"]').click();await page.locator('#f-paymentReceivedCents').fill('1000');await page.locator('#modal-form button[type="submit"]').click();
-  await page.waitForSelector('.receipt');assert.match(await page.locator('.receipt').innerText(),/310\.00/);await page.locator('[data-action="close"]').first().click();
-  await page.reload();await page.waitForSelector('h1:has-text("Punto de venta")');
+  await page.locator('a[href="#/pos"]').click();await page.locator('.product-card[data-id="prod-3"]').click();await page.locator('#pos-discount').fill('10');await page.locator('#pos-discount').dispatchEvent('change');await page.waitForSelector('button:has-text("Cobrar $621.00")');await page.locator('[data-action="pay"]').click();await page.locator('#f-paymentReceivedCents').fill('1000');await page.locator('#modal-form button[type="submit"]').click();
+  await page.waitForSelector('.receipt');assert.match(await page.locator('.receipt').innerText(),/Descuento \(10%\)/);assert.match(await page.locator('.receipt').innerText(),/379\.00/);await page.locator('[data-action="close"]').first().click();
+  await page.locator('.product-card[data-id="prod-4"]').click();await page.locator('[data-action="layaway-new"]').click();await page.locator('#f-customerName').fill('Cliente UI');await page.locator('#f-phone').fill('3781234567');await page.locator('#f-initialPaymentCents').fill('100');await page.locator('#modal-form button[type="submit"]').click();await page.waitForSelector('.receipt');assert.match(await page.locator('.receipt').innerText(),/TICKET DE ABONO/);await page.locator('[data-action="close"]').first().click();
+  await page.locator('a[href="#/layaways"]').click();await page.waitForSelector('h1:has-text("Apartados")');assert.match(await page.locator('body').innerText(),/Cliente UI/);
+  await page.reload();await page.waitForSelector('h1:has-text("Apartados")');
   for(const [width,height]of [[768,1024],[390,844]]){await page.setViewportSize({width,height});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
   assert.equal(errors.length,0,errors.join('; '));
-  console.log('UI OK: admin crea cajero sin perder sesión, producto guardado, cajero cobra, cambio, persistencia y móvil.');
+  console.log('UI OK: descuento, ticket, apartado, stock reservado, persistencia y diseño móvil.');
  }finally{await browser.close();child.kill();}
 }
-console.log('FIRESTORE OK: roles sin claims, transacciones, máximo 8 líneas, ataques rechazados, concurrencia, corte e imágenes.');
+console.log('FIRESTORE OK: roles, descuentos, apartados, abonos, liquidación, concurrencia, corte e imágenes.');
 process.exit(0);

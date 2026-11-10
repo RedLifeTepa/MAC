@@ -1,6 +1,6 @@
-# MAC Store 1.3.0 · Interfaz clásica + Firestore directo
+# MAC Store 1.4.0 · Descuentos, apartados y SKU consecutivo
 
-Inventario, POS, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Esta edición recupera la interfaz clásica azul, la navegación horizontal, el logotipo y el flujo visual del prototipo anterior, conservando la capa segura y funcional de la versión 1.2.0.
+Inventario, POS, descuentos, apartados, abonos, liquidaciones, cortes, usuarios, reportes e imágenes con **Firebase Authentication + Cloud Firestore**, sin Cloud Functions, Cloud Storage ni backend propio. Conserva la interfaz clásica azul y la conexión funcional directa a Firestore.
 
 La configuración pública apunta a **mac-store-eba30**. Conserva tu cuenta de Authentication. Para entrar debes publicar las nuevas reglas y crear el perfil inicial: Authentication valida la contraseña; Firestore determina el rol.
 
@@ -32,7 +32,7 @@ Al entrar como administrador se crean la configuración y dos cajas. El catálog
 
 ## Publicar en GitHub Pages
 
-1. Sube TODO el contenido de MAC-Store-v1.3.0-Classic-UI a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
+1. Sube TODO el contenido de MAC-Store-v1.4.0-Apartados a la raíz del repositorio, incluyendo .github, .gitignore y .firebaserc.
 2. En Settings > Pages > Source selecciona **GitHub Actions**.
 3. Usa la rama main. El workflow Publicar MAC Store en GitHub Pages publica al hacer push; también permite ejecución manual.
 4. Espera a que termine en verde y abre la URL que muestra Pages.
@@ -48,10 +48,12 @@ Ajusta el alojamiento a los términos del proveedor elegido. También puedes pub
 1. Crea una categoría y un proveedor.
 2. Crea un producto: costo real $100, recargo 50%, stock 5. Precio $150.
 3. Abre turno con $1,000.
-4. Vende dos unidades, recibido $500: total $300, cambio $200, stock restante 3.
-5. Recarga: la venta y las existencias deben conservarse en Firestore.
-6. Cierra con $1,300: diferencia $0.
-7. Crea un cajero desde Usuarios y comprueba sus restricciones.
+4. Aplica 10% de descuento y vende dos unidades: subtotal $300, descuento $30 y total $270.
+5. Agrega otra unidad y crea un apartado con nombre, teléfono y abono inicial. Comprueba que el stock disponible baje inmediatamente.
+6. En Apartados registra otro abono y después liquida el saldo; imprime los tres tipos de ticket.
+7. Recarga: la venta, el apartado, los abonos y las existencias deben conservarse en Firestore.
+8. Cierra el turno y comprueba que el efectivo esperado incluya ventas y abonos en efectivo.
+9. Crea un cajero desde Usuarios y comprueba sus restricciones.
 
 Estas operaciones son reales en tu proyecto. No existe borrado completo de tienda. Las bajas son lógicas y las ventas se anulan con motivo durante un turno abierto.
 
@@ -62,6 +64,19 @@ Las ventas, stock, movimientos, turno y auditoría se guardan en transacciones. 
 Se admiten **8 productos distintos por recibo**, con cantidades repetidas. Para más tipos genera otro recibo. Es un límite explícito para respetar los límites de evaluación y acceso de Rules. No se divide un cobro en escrituras parciales.
 
 Los reintentos usan el mismo requestId, evitando duplicar ventas o descuentos. El mismo ID con otro contenido se rechaza. Solo se confirma una venta con conexión; no existe cola de ventas offline.
+
+## Apartados y SKU consecutivo
+
+- El botón **Crear apartado** usa el carrito actual y el descuento seleccionado.
+- Nombre completo y teléfono son obligatorios. El abono inicial es opcional y genera ticket.
+- Al crear el apartado, las unidades se descuentan del stock disponible como reserva; al liquidar no se descuentan nuevamente.
+- Cada abono conserva importe, forma de pago, cajero, turno, fecha y saldo posterior.
+- El último abono cambia el estado a **Liquidado** y genera ticket de liquidación.
+- Un apartado sin abonos puede cancelarse por un administrador y devuelve las unidades al inventario.
+- El corte separa ventas y cobros de apartados; ambos cuentan para el efectivo esperado cuando se cobran en efectivo.
+- Los productos nuevos reciben automáticamente `MAC-033`, `MAC-034`, `MAC-035`… tomando como referencia el mayor SKU existente. El campo no se edita manualmente.
+
+Para esta actualización es obligatorio volver a publicar **REGLAS_FIRESTORE.txt** antes de usar descuentos o apartados en GitHub Pages.
 
 control/revision coordina los cambios. Los catálogos y reportes administrativos se leen completos y se filtran/paginan en cliente. Esta versión es para una tienda de volumen pequeño: las lecturas crecen con el historial y cuentan en las cuotas. Para alto volumen se necesita paginación y consultas selectivas.
 

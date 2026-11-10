@@ -9,6 +9,8 @@ service cloud.firestore {
   function shiftAfter(id){return getAfter(/databases/$(database)/documents/shifts/$(id)).data;}
   function productAfter(id){return getAfter(/databases/$(database)/documents/products/$(id)).data;}
   function saleAfter(id){return getAfter(/databases/$(database)/documents/sales/$(id)).data;}
+  function layawayAfter(id){return getAfter(/databases/$(database)/documents/layaways/$(id)).data;}
+  function layawayPaymentAfter(id){return getAfter(/databases/$(database)/documents/layawayPayments/$(id)).data;}
   function moveAfter(id){return getAfter(/databases/$(database)/documents/inventoryMovements/$(id)).data;}
   function auditAfter(id){return getAfter(/databases/$(database)/documents/logs/$(id)).data;}
   function validProduct(d){
@@ -43,12 +45,30 @@ service cloud.firestore {
     && movement.productId==id && movement.saleId==d.lastSaleId && movement.qtyDelta==-line.qty
     && movement.createdAt==request.time && movement.actorId==request.auth.uid;
   }
+  function stockLayaway(d,id){
+   let layaway=layawayAfter(d.lastLayawayId);
+   let n=d.lastLayawayIndex;
+   let line=layaway.items[n];
+   let prior=n==0?0:layaway.items[n-1].runningGrossCents;
+   let movement=moveAfter(d.lastMovementId);
+   return staff() && layaway.cashierId==request.auth.uid && layaway.createdAt==request.time
+    && n>=0 && n<8 && line.productId==id && resource.data.active==true
+    && line.qty is int && line.qty>0 && line.qty<=10000
+    && line.unitPriceCents==resource.data.priceCents && line.unitCostCents==resource.data.realCostCents
+    && line.name==resource.data.name && line.barcode==resource.data.barcode
+    && line.subtotalCents==line.qty*line.unitPriceCents && line.runningGrossCents==prior+line.subtotalCents
+    && d.stock==resource.data.stock-line.qty && d.stock>=0
+    && d.updatedAt==request.time && d.lowStock==(d.stock<=d.minStock)
+    && d.diff(resource.data).affectedKeys().hasOnly(['stock','lowStock','updatedAt','lastLayawayId','lastLayawayIndex','lastMovementId'])
+    && movement.productId==id && movement.saleId==d.lastLayawayId && movement.qtyDelta==-line.qty
+    && movement.type=='layaway_reserve' && movement.createdAt==request.time && movement.actorId==request.auth.uid;
+  }
   function validLine(items,n,saleId){
    return n>=items.size() || (productAfter(items[n].productId).lastSaleId==saleId && productAfter(items[n].productId).lastSaleIndex==n);
   }
   function validSale(d,id){
    let shift=shiftAfter(d.shiftId);
-   return staff() && d.keys().hasOnly(['cashierId','shiftId','registerId','items','totalSaleCents','totalCostCents','paymentMethod','paymentReceivedCents','changeCents','status','businessDate','currency','createdAt','fingerprint','operationId','requestId'])
+   return staff() && d.keys().hasOnly(['cashierId','shiftId','registerId','items','grossTotalCents','discountPercent','discountCents','totalSaleCents','totalCostCents','paymentMethod','paymentReceivedCents','changeCents','status','businessDate','currency','createdAt','fingerprint','operationId','requestId'])
     && shortText(d.requestId,100) && d.requestId.matches('^[A-Za-z0-9_-]+$') && id==request.auth.uid+'_'+d.requestId
     && d.cashierId==request.auth.uid && profile().openShiftId==d.shiftId
     && d.status=='completed' && d.currency=='MXN' && d.createdAt==request.time
@@ -57,8 +77,11 @@ service cloud.firestore {
     && d.items is list && d.items.size()>0 && d.items.size()<=8
     && validLine(d.items,0,id) && validLine(d.items,1,id) && validLine(d.items,2,id) && validLine(d.items,3,id)
     && validLine(d.items,4,id) && validLine(d.items,5,id) && validLine(d.items,6,id) && validLine(d.items,7,id)
+    && money(d.grossTotalCents) && d.grossTotalCents==d.items[d.items.size()-1].runningSaleCents
+    && d.discountPercent is int && d.discountPercent>=0 && d.discountPercent<=99
+    && d.discountCents*100<=d.grossTotalCents*d.discountPercent && (d.discountCents+1)*100>d.grossTotalCents*d.discountPercent
     && money(d.totalSaleCents) && d.totalSaleCents>0 && money(d.totalCostCents)
-    && d.totalSaleCents==d.items[d.items.size()-1].runningSaleCents
+    && d.totalSaleCents==d.grossTotalCents-d.discountCents
     && d.totalCostCents==d.items[d.items.size()-1].runningCostCents
     && money(d.paymentReceivedCents) && money(d.changeCents)
     && ((d.paymentMethod=='cash' && d.paymentReceivedCents>=d.totalSaleCents && d.changeCents==d.paymentReceivedCents-d.totalSaleCents)
@@ -88,12 +111,21 @@ service cloud.firestore {
     && d.diff(resource.data).affectedKeys().hasOnly(['lastCashMovementId','cashInCents','cashOutCents'])
     && d.cashInCents==resource.data.cashInCents+(move.type=='in'?move.amountCents:0)
     && d.cashOutCents==resource.data.cashOutCents+(move.type=='out'?move.amountCents:0)
-    && d.openingCashCents+d.payments.cash+d.cashInCents-d.cashOutCents>=0;
+    && d.openingCashCents+d.payments.cash+d.get('layawayPayments',{'cash':0,'card':0,'transfer':0}).cash+d.cashInCents-d.cashOutCents>=0;
+  }
+  function shiftLayaway(d,id){
+   let payment=layawayPaymentAfter(d.lastLayawayPaymentId);
+   return payment.shiftId==id && payment.cashierId==request.auth.uid && payment.createdAt==request.time && d.status=='open'
+    && d.diff(resource.data).affectedKeys().hasOnly(['lastLayawayPaymentId','layawayPayments'])
+    && d.layawayPayments.keys().hasOnly(['cash','card','transfer'])
+    && d.layawayPayments.cash==resource.data.get('layawayPayments',{'cash':0,'card':0,'transfer':0}).cash+(payment.paymentMethod=='cash'?payment.amountCents:0)
+    && d.layawayPayments.card==resource.data.get('layawayPayments',{'cash':0,'card':0,'transfer':0}).card+(payment.paymentMethod=='card'?payment.amountCents:0)
+    && d.layawayPayments.transfer==resource.data.get('layawayPayments',{'cash':0,'card':0,'transfer':0}).transfer+(payment.paymentMethod=='transfer'?payment.amountCents:0);
   }
   function shiftClose(d,id){
    return d.status=='closed' && d.closedAt==request.time
     && d.diff(resource.data).affectedKeys().hasOnly(['status','closedAt','expectedCashCents','closingCashCents','differenceCents','notes'])
-    && d.expectedCashCents==resource.data.openingCashCents+resource.data.payments.cash+resource.data.cashInCents-resource.data.cashOutCents
+    && d.expectedCashCents==resource.data.openingCashCents+resource.data.payments.cash+resource.data.get('layawayPayments',{'cash':0,'card':0,'transfer':0}).cash+resource.data.cashInCents-resource.data.cashOutCents
     && money(d.closingCashCents) && d.differenceCents==d.closingCashCents-d.expectedCashCents
     && d.notes is string && d.notes.size()<=500
     && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.openShiftId==null
@@ -118,7 +150,7 @@ service cloud.firestore {
   match /products/{id}{
    allow read: if staff();
    allow create: if admin() && validProduct(request.resource.data) && reservedCodes(request.resource.data,id) && request.resource.data.createdAt==request.time;
-   allow update: if (admin() && validProduct(request.resource.data) && reservedCodes(request.resource.data,id) && request.resource.data.get('lastSaleId',null)==resource.data.get('lastSaleId',null)) || stockSale(request.resource.data,id);
+   allow update: if (admin() && validProduct(request.resource.data) && reservedCodes(request.resource.data,id) && request.resource.data.get('lastSaleId',null)==resource.data.get('lastSaleId',null)) || stockSale(request.resource.data,id) || stockLayaway(request.resource.data,id);
   }
   match /barcodes/{code}{
    allow read: if admin();
@@ -150,13 +182,13 @@ service cloud.firestore {
     && money(request.resource.data.openingCashCents) && profile().get('openShiftId',null)==null
     && get(/databases/$(database)/documents/registers/$(request.resource.data.registerId)).data.openShiftId==null
     && get(/databases/$(database)/documents/registers/$(request.resource.data.registerId)).data.active==true
-    && request.resource.data.payments=={'cash':0,'card':0,'transfer':0}
+    && request.resource.data.payments=={'cash':0,'card':0,'transfer':0} && request.resource.data.layawayPayments=={'cash':0,'card':0,'transfer':0}
     && request.resource.data.totalSalesCents==0 && request.resource.data.totalCostCents==0 && request.resource.data.saleCount==0
     && request.resource.data.cashInCents==0 && request.resource.data.cashOutCents==0
     && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.openShiftId==id
     && getAfter(/databases/$(database)/documents/registers/$(request.resource.data.registerId)).data.openShiftId==id;
    allow update: if staff() && resource.data.status=='open'
-    && (admin() || (resource.data.cashierId==request.auth.uid && ((request.resource.data.keys().hasAny(['lastSaleId']) && shiftSale(request.resource.data,id)) || (request.resource.data.keys().hasAny(['lastCashMovementId']) && shiftCash(request.resource.data,id)) || shiftClose(request.resource.data,id))));
+    && (admin() || (resource.data.cashierId==request.auth.uid && ((request.resource.data.keys().hasAny(['lastSaleId']) && shiftSale(request.resource.data,id)) || (request.resource.data.keys().hasAny(['lastCashMovementId']) && shiftCash(request.resource.data,id)) || (request.resource.data.keys().hasAny(['lastLayawayPaymentId']) && shiftLayaway(request.resource.data,id)) || shiftClose(request.resource.data,id))));
   }
   match /sales/{id}{
    allow get: if admin() || (staff() && id.matches('^'+request.auth.uid+'_[A-Za-z0-9_-]+$'));
@@ -167,15 +199,58 @@ service cloud.firestore {
     && request.resource.data.voidedAt==request.time && request.resource.data.voidedBy==request.auth.uid
     && shortText(request.resource.data.voidReason,500) && get(/databases/$(database)/documents/shifts/$(resource.data.shiftId)).data.status=='open';
   }
+  function validLayawayLine(items,n,id){
+   return n>=items.size() || (productAfter(items[n].productId).lastLayawayId==id && productAfter(items[n].productId).lastLayawayIndex==n);
+  }
+  match /layaways/{id}{
+   allow read: if staff();
+   allow create: if staff() && request.resource.data.cashierId==request.auth.uid && request.resource.data.createdAt==request.time
+    && request.resource.data.status=='active' && shortText(request.resource.data.customerName,160) && shortText(request.resource.data.phone,30)
+    && request.resource.data.items is list && request.resource.data.items.size()>0 && request.resource.data.items.size()<=8
+    && validLayawayLine(request.resource.data.items,0,id) && validLayawayLine(request.resource.data.items,1,id)
+    && validLayawayLine(request.resource.data.items,2,id) && validLayawayLine(request.resource.data.items,3,id)
+    && validLayawayLine(request.resource.data.items,4,id) && validLayawayLine(request.resource.data.items,5,id)
+    && validLayawayLine(request.resource.data.items,6,id) && validLayawayLine(request.resource.data.items,7,id)
+    && request.resource.data.grossTotalCents==request.resource.data.items[request.resource.data.items.size()-1].runningGrossCents
+    && request.resource.data.discountPercent is int && request.resource.data.discountPercent>=0 && request.resource.data.discountPercent<=99
+    && request.resource.data.discountCents*100<=request.resource.data.grossTotalCents*request.resource.data.discountPercent
+    && (request.resource.data.discountCents+1)*100>request.resource.data.grossTotalCents*request.resource.data.discountPercent
+    && request.resource.data.totalCents==request.resource.data.grossTotalCents-request.resource.data.discountCents
+    && money(request.resource.data.paidCents) && request.resource.data.paidCents<request.resource.data.totalCents
+    && request.resource.data.balanceCents==request.resource.data.totalCents-request.resource.data.paidCents;
+   allow update: if (staff() && resource.data.status=='active' && request.resource.data.updatedAt==request.time
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paidCents','balanceCents','status','updatedAt','liquidatedAt','lastPaymentId'])
+    && request.resource.data.lastPaymentId is string
+    && layawayPaymentAfter(request.resource.data.lastPaymentId).layawayId==id
+    && request.resource.data.paidCents==resource.data.paidCents+layawayPaymentAfter(request.resource.data.lastPaymentId).amountCents
+    && request.resource.data.balanceCents==resource.data.totalCents-request.resource.data.paidCents
+    && ((request.resource.data.balanceCents>0 && request.resource.data.status=='active') || (request.resource.data.balanceCents==0 && request.resource.data.status=='liquidated' && request.resource.data.liquidatedAt==request.time)))
+    || (admin() && resource.data.status=='active' && resource.data.paidCents==0 && request.resource.data.status=='cancelled'
+      && request.resource.data.updatedAt==request.time && request.resource.data.cancelledAt==request.time
+      && request.resource.data.cancelledBy==request.auth.uid && shortText(request.resource.data.cancelReason,500));
+  }
+  match /layawayPayments/{id}{
+   allow read: if staff();
+   allow create: if staff() && request.resource.data.cashierId==request.auth.uid && request.resource.data.createdAt==request.time
+    && request.resource.data.paymentMethod in ['cash','card','transfer'] && money(request.resource.data.amountCents) && request.resource.data.amountCents>0
+    && request.resource.data.type in ['initial','payment','liquidation']
+    && shiftAfter(request.resource.data.shiftId).lastLayawayPaymentId==id
+    && layawayAfter(request.resource.data.layawayId).lastPaymentId==id;
+  }
   function saleMovement(d,id){
    let p=productAfter(d.productId);
    return d.type=='sale' && d.qtyDelta<0 && p.lastMovementId==id && p.lastSaleId==d.saleId
     && p.updatedAt==request.time && d.stockAfter==p.stock && d.stockBefore==d.stockAfter-d.qtyDelta;
   }
+  function layawayMovement(d,id){
+   let p=productAfter(d.productId);
+   return d.type=='layaway_reserve' && d.qtyDelta<0 && p.lastMovementId==id && p.lastLayawayId==d.saleId
+    && p.updatedAt==request.time && d.stockAfter==p.stock && d.stockBefore==d.stockAfter-d.qtyDelta;
+  }
   match /inventoryMovements/{id}{
    allow read: if admin();
    allow create: if staff() && request.resource.data.actorId==request.auth.uid && request.resource.data.createdAt==request.time
-    && (admin() || saleMovement(request.resource.data,id));
+    && (admin() || saleMovement(request.resource.data,id) || layawayMovement(request.resource.data,id));
   }
   match /cashMovements/{id}{
    allow read: if admin() || (staff() && resource.data.cashierId==request.auth.uid);
@@ -193,7 +268,8 @@ service cloud.firestore {
       || (request.resource.data.action=='sale.create' && saleAfter(request.resource.data.entityId).operationId==id && saleAfter(request.resource.data.entityId).cashierId==request.auth.uid && saleAfter(request.resource.data.entityId).createdAt==request.time)
       || (request.resource.data.action=='shift.open' && shiftAfter(request.resource.data.entityId).cashierId==request.auth.uid && shiftAfter(request.resource.data.entityId).openedAt==request.time)
       || (request.resource.data.action=='shift.close' && shiftAfter(request.resource.data.entityId).cashierId==request.auth.uid && shiftAfter(request.resource.data.entityId).closedAt==request.time)
-      || (request.resource.data.action=='cash.move' && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.actorId==request.auth.uid && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.createdAt==request.time));
+      || (request.resource.data.action=='cash.move' && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.actorId==request.auth.uid && getAfter(/databases/$(database)/documents/cashMovements/$(id)).data.createdAt==request.time)
+      || (request.resource.data.action in ['layaway.create','layaway.payment'] && layawayAfter(request.resource.data.entityId).cashierId is string));
   }
   match /images/{id}{
    allow read: if staff();

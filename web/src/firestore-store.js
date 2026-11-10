@@ -8,13 +8,13 @@ const decode=v=>{
 };
 const fromDoc=d=>d.exists()?{id:d.id,...decode(d.data())}:null;
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-function normalize(s){for(const u of s.users)u.openShiftId??=null;for(const sale of s.sales)if(sale.createdAt)sale.businessDate=businessDate(sale.createdAt,s.settings.timezone);return s;}
+function normalize(s){for(const u of s.users)u.openShiftId??=null;for(const shift of s.shifts)shift.layawayPayments??={cash:0,card:0,transfer:0};for(const sale of s.sales)if(sale.createdAt){sale.businessDate=businessDate(sale.createdAt,s.settings.timezone);sale.grossTotalCents??=sale.totalSaleCents;sale.discountPercent??=0;sale.discountCents??=0;}return s;}
 export async function loadState(sdk,db,uid){
  const profile=await sdk.getDocFromServer(sdk.doc(db,'users',uid));
  if(!profile.exists())throw Error(`Cuenta autenticada, pero falta tu perfil en Firestore: users/${uid}. Crea ese documento como indica LEEME_PRIMERO.txt.`);
  const u=fromDoc(profile);if(!u.active||!['admin','cashier'].includes(u.role))throw Error('Tu perfil está inactivo o no tiene un rol válido.');
  const s=emptyState(),admin=u.role==='admin';
- const collections=admin?COLLECTIONS.filter(c=>c!=='users'):['products','categories','registers','sales','shifts','cashMovements'];
+ const collections=admin?COLLECTIONS.filter(c=>c!=='users'):['products','categories','registers','sales','shifts','cashMovements','layaways','layawayPayments'];
  const snapshots=await Promise.all(collections.map(c=>{
   let query=sdk.collection(db,c);
   if(!admin&&['sales','shifts','cashMovements'].includes(c))query=sdk.query(query,sdk.where('cashierId','==',uid));
@@ -38,11 +38,11 @@ export async function initializeStore(sdk,db,uid){
   if(!docs[3].exists())tx.set(refs[3],{version:0,updatedAt:sdk.serverTimestamp()});
  });
 }
-async function cashierPaths(sdk,db,uid,action,data){
+async function cashierPaths(sdk,db,uid,action,data,operationId){
  const paths=new Set([`users/${uid}`,'settings/store']);
  const user=(await sdk.getDocFromServer(sdk.doc(db,'users',uid))).data();
  if(!user?.active)throw Error('Usuario inactivo o sin perfil.');
- if(!['sale.create','shift.open','shift.close','cash.move'].includes(action))throw Error('Esta acción requiere administrador.');
+ if(!['sale.create','shift.open','shift.close','cash.move','layaway.create','layaway.payment'].includes(action))throw Error('Esta acción requiere administrador.');
  let shiftId=data.shiftId||user.openShiftId;
  if(shiftId){
   paths.add(`shifts/${shiftId}`);
@@ -53,6 +53,14 @@ async function cashierPaths(sdk,db,uid,action,data){
  if(action==='sale.create'){
   paths.add(`sales/${uid}_${data.requestId}`);
   for(const i of data.items||[])paths.add(`products/${i.productId}`);
+ }
+ if(action==='layaway.create'){
+  paths.add(`layaways/${operationId}`);
+  for(const i of data.items||[])paths.add(`products/${i.productId}`);
+ }
+ if(action==='layaway.payment'){
+  paths.add(`layaways/${data.layawayId}`);
+  paths.add(`layawayPayments/${uid}_${data.requestId}`);
  }
  return [...paths];
 }
@@ -77,7 +85,7 @@ export async function performAction(sdk,db,uid,action,data,operationId=crypto.ra
   if(isAdmin){
    const state=await loadState(sdk,db,uid);
    paths=[...COLLECTIONS.flatMap(c=>state[c].map(d=>`${c}/${d.id}`)),'settings/store'];
-  }else paths=await cashierPaths(sdk,db,uid,action,data);
+  }else paths=await cashierPaths(sdk,db,uid,action,data,operationId);
   // Reservas de código permanentes: un código histórico no cambia de producto.
   if(action==='product.save'){
    for(const [collection,key]of [['barcodes','barcode'],['skus','sku']])if(data[key])paths.push(`${collection}/${data[key]}`);
@@ -95,6 +103,7 @@ export async function performAction(sdk,db,uid,action,data,operationId=crypto.ra
     else if(snapshot.exists())before[c].push(fromDoc(snapshot));
    });
    for(const u of before.users)u.openShiftId??=null;
+   if(action.startsWith('layaway.'))for(const shift of before.shifts)shift.layawayPayments??={cash:0,card:0,transfer:0};
    const now=new Date().toISOString();
    const {state:after,result}=apply(before,uid,action,data,now,operationId);
    if(action==='sale.create'&&!before.sales.some(s=>s.id===result.id)){
@@ -102,6 +111,12 @@ export async function performAction(sdk,db,uid,action,data,operationId=crypto.ra
     let runningSaleCents=0,runningCostCents=0;sale.items.forEach((item,index)=>{runningSaleCents+=item.subtotalCents;runningCostCents+=item.qty*item.unitCostCents;item.runningSaleCents=runningSaleCents;item.runningCostCents=runningCostCents;const p=after.products.find(p=>p.id===item.productId);p.lastSaleId=sale.id;p.lastSaleIndex=index;p.lastMovementId=`${operationId}_${index}`;});
     after.shifts.find(s=>s.id===sale.shiftId).lastSaleId=sale.id;
    }
+   if(action==='layaway.create'&&!before.layaways.some(x=>x.id===result.id)){
+    const layaway=after.layaways.find(x=>x.id===result.id);layaway.operationId=operationId;
+    let runningGrossCents=0;layaway.items.forEach((item,index)=>{runningGrossCents+=item.subtotalCents;item.runningGrossCents=runningGrossCents;const p=after.products.find(p=>p.id===item.productId);p.lastLayawayId=layaway.id;p.lastLayawayIndex=index;p.lastMovementId=`${operationId}_reserve_${index}`;});
+    if(result.paymentId)after.shifts.find(s=>s.id===data.shiftId).lastLayawayPaymentId=result.paymentId;
+   }
+   if(action==='layaway.payment'&&!before.layawayPayments.some(x=>x.id===result.id))after.shifts.find(s=>s.id===data.shiftId).lastLayawayPaymentId=result.id;
    if(action==='cash.move')after.shifts.find(s=>s.id===data.shiftId).lastCashMovementId=operationId;
    const writes=[];
    for(const c of COLLECTIONS){

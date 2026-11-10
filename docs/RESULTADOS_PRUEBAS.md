@@ -1,10 +1,10 @@
-# Validación de MAC Store 1.2.0
+# Validación de MAC Store 1.4.0
 
 Fecha: 27 de octubre de 2026.
 
 ## Aprobado
 
-- 30 pruebas de dominio: precios/margen, importes, inventario, permisos, idempotencia, turnos y anulación.
+- 34 pruebas de dominio: precios/margen, descuentos, inventario, permisos, idempotencia, turnos, apartados, abonos, liquidación, cancelación y SKU consecutivo.
 - Validación del frontend: Auth + Firestore, sin SDK de Functions/Storage ni credenciales de ejemplo.
 - Cuenta Auth sin perfil: devuelve instrucción con el UID. Un usuario no puede crearse un perfil admin por API.
 - Perfil admin habilitado desde consola: inicializa cajas y tienda vacía.
@@ -17,6 +17,9 @@ Fecha: 27 de octubre de 2026.
 - Anulación por admin: venta conservada con estado voided, stock repuesto.
 - Imagen en Firestore: admin puede crear; cajero puede leer y tiene prohibido crear.
 - Navegador Chromium: admin crea cajero sin perder sesión; crea producto con imagen comprimida en Firestore; el cajero inicia sesión, abre caja, cobra, ve cambio y conserva datos al recargar.
+- Descuento del 10%: total validado en dominio, Firestore Rules, corte y ticket.
+- Apartado: stock reservado atómicamente; abono inicial, abono posterior y liquidación aprobados sin doble descuento de inventario.
+- SKU nuevo: asignación automática desde MAC-033 y continuidad consecutiva.
 - Tablet y móvil: sin desbordamiento horizontal en el escenario probado.
 
 Pruebas con Auth y Firestore emulados, sin Cloud Functions ni Storage. Los errores PERMISSION_DENIED que aparecen en la salida corresponden a los intentos maliciosos que la prueba espera rechazar.
